@@ -1,3 +1,4 @@
+// src/commands/config.js
 import { q } from '../db/pool.js';
 
 export default {
@@ -9,33 +10,30 @@ export default {
         name: 'kingrole',
         description: 'Set King role',
         type: 1,
-        options: [
-          { name: 'role', type: 8, description: 'Role', required: true }
-        ]
+        options: [{ name: 'role', type: 8, description: 'Role', required: true }]
       },
       {
         name: 'userlead',
         description: 'Set user reminder lead minutes',
         type: 1,
-        options: [
-          { name: 'minutes', type: 4, description: 'Minutes', required: true }
-        ]
+        options: [{ name: 'minutes', type: 4, description: 'Minutes', required: true }]
       },
       {
         name: 'kinglead',
         description: 'Set King change-lead minutes',
         type: 1,
-        options: [
-          { name: 'minutes', type: 4, description: 'Minutes', required: true }
-        ]
+        options: [{ name: 'minutes', type: 4, description: 'Minutes', required: true }]
       },
       {
         name: 'buffrole',
         description: 'Set the Buff Giver role (active slot role)',
         type: 1,
-        options: [
-          { name: 'role', type: 8, description: 'Role', required: true }
-        ]
+        options: [{ name: 'role', type: 8, description: 'Role', required: true }]
+      },
+      {
+        name: 'show',
+        description: 'Show current configuration',
+        type: 1
       }
     ]
   },
@@ -57,8 +55,10 @@ export default {
     if (sub === 'userlead') {
       const m = interaction.options.getInteger('minutes');
       await q(
-        `UPDATE guild_settings SET notify_lead_minutes=$1 WHERE guild_id=$2`,
-        [m, interaction.guildId]
+        `INSERT INTO guild_settings(guild_id, notify_lead_minutes)
+         VALUES ($1,$2)
+         ON CONFLICT(guild_id) DO UPDATE SET notify_lead_minutes=EXCLUDED.notify_lead_minutes`,
+        [interaction.guildId, m]
       );
       return interaction.reply({ content: `⏰ User reminder lead set to ${m} minutes.`, ephemeral: true });
     }
@@ -66,8 +66,10 @@ export default {
     if (sub === 'kinglead') {
       const m = interaction.options.getInteger('minutes');
       await q(
-        `UPDATE guild_settings SET king_change_lead_minutes=$1 WHERE guild_id=$2`,
-        [m, interaction.guildId]
+        `INSERT INTO guild_settings(guild_id, king_change_lead_minutes)
+         VALUES ($1,$2)
+         ON CONFLICT(guild_id) DO UPDATE SET king_change_lead_minutes=EXCLUDED.king_change_lead_minutes`,
+        [interaction.guildId, m]
       );
       return interaction.reply({ content: `🕑 King change lead set to ${m} minutes.`, ephemeral: true });
     }
@@ -81,8 +83,27 @@ export default {
         [interaction.guildId, role.id]
       );
       return interaction.reply({
-        content: `🛡️ Buff Giver role set to ${role}.  
-Make sure my role is **above** this role in the server’s Role list, and that I have **Manage Roles**.`,
+        content: `🛡️ Buff Giver role set to ${role}.\nMake sure my role is **above** this role and I have **Manage Roles**.`,
+        ephemeral: true
+      });
+    }
+
+    if (sub === 'show') {
+      const { rows } = await q(
+        `SELECT king_role_id, buff_role_id, notify_lead_minutes, king_change_lead_minutes
+         FROM guild_settings WHERE guild_id=$1`,
+        [interaction.guildId]
+      );
+      const g = rows[0] || {};
+      return interaction.reply({
+        content:
+          [
+            `**Current config:**`,
+            `• King role: ${g.king_role_id ? `<@&${g.king_role_id}>` : '—'}`,
+            `• Buff role: ${g.buff_role_id ? `<@&${g.buff_role_id}>` : '—'}`,
+            `• User lead minutes: ${g.notify_lead_minutes ?? 15}`,
+            `• King lead minutes: ${g.king_change_lead_minutes ?? 10}`
+          ].join('\n'),
         ephemeral: true
       });
     }
