@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS guild_settings (
   guild_id TEXT PRIMARY KEY,
   king_role_id TEXT,
   buff_role_id TEXT,
+  r5_role_id TEXT,
   category_id TEXT,
   panel_channel_id TEXT,
   panel_message_id TEXT,
@@ -14,6 +15,10 @@ CREATE TABLE IF NOT EXISTS guild_settings (
 -- Ensure buff_role_id exists even if the table was created before it was added
 ALTER TABLE guild_settings
   ADD COLUMN IF NOT EXISTS buff_role_id TEXT;
+
+-- Ensure r5_role_id exists even if the table was created before it was added
+ALTER TABLE guild_settings
+  ADD COLUMN IF NOT EXISTS r5_role_id TEXT;
 
 -- Users cache (optional)
 CREATE TABLE IF NOT EXISTS users (
