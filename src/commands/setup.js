@@ -129,11 +129,10 @@ export default {
           value:
             `1. Use the **📅 Date menu** below to pick a day\n` +
             `2. Choose:\n` +
-            `   ✅ **Add Hours** – select your availability\n` +
-            `   ❌ **Remove Hours** – leave a shift\n` +
-            `   ✏️ **Edit My Hours** – adjust your hours`
+            `   \n✅ **Add Hours** – select your availability\n` +
+            `   \n❌ **Remove Hours** – leave a shift\n` +
+            `   \n✏️ **Edit My Hours** – adjust your hours`
         },
-        
         {
           name: '🔔 Notifications',
           value:
@@ -141,7 +140,6 @@ export default {
             `- The **King** gets a DM when assignees change\n` +
             `- When the King confirms, Buff Givers are DM’d to notify them they have been assigned`
         },
-        
         {
           name: '⚔️ Roles',
           value:
