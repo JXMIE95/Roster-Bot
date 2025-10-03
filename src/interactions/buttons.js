@@ -51,10 +51,7 @@ export async function onButton(interaction) {
         try {
           const user = await interaction.client.users.fetch(r.user_id);
           await user.send(
-            `👑 The King has assigned you for **${dateStr} ${String(hour).padStart(
-              2,
-              '0'
-            )}:00 UTC**. Please take position.`
+            `👑 The King has assigned you for **${dateStr} ${String(hour).padStart(2,'0')}:00 UTC**. Please take position.`
           );
         } catch {}
       }
@@ -173,6 +170,80 @@ export async function onButton(interaction) {
 }
 
 export async function onSelectMenu(interaction) {
+  // --- R5 King Assignment (user select menus): grant/revoke King role ---
+  if (interaction.customId === 'king_grant' || interaction.customId === 'king_revoke') {
+    const guildId = interaction.guildId;
+
+    // Load settings
+    const { rows: gset } = await q(
+      `SELECT r5_role_id, king_role_id FROM guild_settings WHERE guild_id=$1`,
+      [guildId]
+    );
+    const r5RoleId = gset[0]?.r5_role_id;
+    const kingRoleId = gset[0]?.king_role_id;
+
+    if (!kingRoleId) {
+      await interaction.reply({ content: '⚠️ No King role configured. Set it with `/config kingrole` first.', ephemeral: true });
+      return;
+    }
+
+    // Permission: must be R5 OR have ManageRoles/Admin
+    const member = await interaction.guild.members.fetch(interaction.user.id);
+    const isR5 = r5RoleId ? member.roles.cache.has(r5RoleId) : false;
+    const hasPerm =
+      isR5 ||
+      member.permissions.has('ManageRoles') ||
+      member.permissions.has('Administrator');
+
+    if (!hasPerm) {
+      await interaction.reply({ content: '❌ You do not have permission to manage the King role.', ephemeral: true });
+      return;
+    }
+
+    // Bot ability check
+    const me = await interaction.guild.members.fetchMe();
+    const kingRole = await interaction.guild.roles.fetch(kingRoleId).catch(() => null);
+    if (!kingRole) {
+      await interaction.reply({ content: '⚠️ King role not found in this server. Re-set it with `/config kingrole`.', ephemeral: true });
+      return;
+    }
+    const canManage =
+      me.permissions.has('ManageRoles') &&
+      me.roles.highest.comparePositionTo(kingRole) > 0 &&
+      !kingRole.managed;
+
+    if (!canManage) {
+      await interaction.reply({
+        content: '❌ I cannot edit the King role. Ensure I have **Manage Roles**, my top role is **above** the King role, and the role is not **managed**.',
+        ephemeral: true
+      });
+      return;
+    }
+
+    // Apply role changes
+    const userIds = interaction.values; // user IDs selected
+    const grant = interaction.customId === 'king_grant';
+
+    const results = [];
+    for (const uid of userIds) {
+      try {
+        const m = await interaction.guild.members.fetch(uid);
+        if (grant) {
+          await m.roles.add(kingRole).catch(() => {});
+          results.push(`✅ Granted ${m.displayName || m.user.username}`);
+        } else {
+          await m.roles.remove(kingRole).catch(() => {});
+          results.push(`✅ Revoked ${m.displayName || m.user.username}`);
+        }
+      } catch {
+        results.push(`⚠️ Failed for <@${uid}>`);
+      }
+    }
+
+    await interaction.reply({ content: results.join('\n'), ephemeral: true });
+    return;
+  }
+
   // Handle the public date dropdown to avoid "interaction failed"
   if (interaction.customId === 'date_select') {
     const date = interaction.values[0];
