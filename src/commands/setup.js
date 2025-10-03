@@ -129,9 +129,9 @@ export default {
           value:
             `1. Use the **📅 Date menu** below to pick a day\n` +
             `2. Choose:\n` +
-            `   \n\n✅ **Add Hours** – select your availability\n` +
-            `   \n\n❌ **Remove Hours** – leave a shift\n` +
-            `   \n\n✏️ **Edit My Hours** – adjust your hours`
+            `   ✅ **Add Hours** – select your availability\n` +
+            `   ❌ **Remove Hours** – leave a shift\n` +
+            `   ✏️ **Edit My Hours** – adjust your hours`
         },
         
         {
@@ -143,7 +143,7 @@ export default {
         },
         
         {
-          \n\nname: '⚔️ Roles',
+          name: '⚔️ Roles',
           value:
             `The bot will **add the Buff Giver role** when your shift starts, and **remove it** when your shift ends.`
         }
