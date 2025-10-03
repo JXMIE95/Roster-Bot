@@ -1,4 +1,4 @@
-import { ActionRowBuilder, StringSelectMenuBuilder } from 'discord.js';
+import { ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { q } from '../db/pool.js';
 import { hoursArray } from '../util/time.js';
 import { upsertDayMessage } from '../util/dayMessage.js';
@@ -19,37 +19,68 @@ function hourMultiSelect(customId, placeholder, preSelected = []) {
 }
 
 export async function onButton(interaction) {
+  // King helper button on the public panel
   if (interaction.customId === 'king_confirm') {
-    await interaction.deferReply({ ephemeral: true });
-    await interaction.followUp({ content: 'Use `/kingnotify now` for the current hour, or `/kingnotify slot date:YYYY-MM-DD hour:HH` for a specific slot.', ephemeral: true });
+    await interaction.reply({ content: 'Use `/kingnotify now` or `/kingnotify slot date:YYYY-MM-DD hour:HH`.', ephemeral: true });
     return;
   }
 
-  if (interaction.customId === 'add_hours' || interaction.customId === 'remove_hours' || interaction.customId === 'edit_hours') {
-    const selected = interaction.message?.components?.[0]?.components?.[0]?.data?.values 
-      ?? interaction.message?.components?.[0]?.components?.[0]?.values;
-    const date = (selected && selected[0]) || null;
-    if (!date) return interaction.reply({ content: 'Please select a date from the dropdown first.', ephemeral: true });
+  // Ephemeral add/remove/edit that include the date in the custom id
+  if (interaction.customId.startsWith('add_hours_ep:') ||
+      interaction.customId.startsWith('remove_hours_ep:') ||
+      interaction.customId.startsWith('edit_hours_ep:')) {
 
+    const [action, date] = interaction.customId.split(':'); // e.g., add_hours_ep:2025-10-05
     const { rows } = await q(`SELECT hour FROM shifts WHERE guild_id=$1 AND date_utc=$2 AND user_id=$3 ORDER BY hour`,
       [interaction.guildId, date, interaction.user.id]);
     const my = rows.map(r=>r.hour);
 
-    if (interaction.customId === 'edit_hours') {
-      return interaction.reply({
+    if (action === 'edit_hours_ep') {
+      await interaction.reply({
         ephemeral: true,
         content: `Edit your hours for **${date} UTC**`,
         components: [ hourMultiSelect(`edit_hours_submit:${date}`, 'Select all hours you will cover', my) ]
       });
+      return;
     }
 
-    const cid = interaction.customId === 'add_hours' ? `add_hours_submit:${date}` : `remove_hours_submit:${date}`;
-    const ph = interaction.customId === 'add_hours' ? 'Select hours to add' : 'Select hours to remove';
-    return interaction.reply({ ephemeral: true, content: `Choose hours for **${date} UTC**`, components: [ hourMultiSelect(cid, ph) ] });
+    const cid = action === 'add_hours_ep' ? `add_hours_submit:${date}` : `remove_hours_submit:${date}`;
+    const ph  = action === 'add_hours_ep' ? 'Select hours to add' : 'Select hours to remove';
+
+    await interaction.reply({
+      ephemeral: true,
+      content: `Choose hours for **${date} UTC**`,
+      components: [ hourMultiSelect(cid, ph) ]
+    });
+    return;
+  }
+
+  // Legacy public buttons (kept for compatibility) — ask them to pick a date first
+  if (interaction.customId === 'add_hours' || interaction.customId === 'remove_hours' || interaction.customId === 'edit_hours') {
+    await interaction.reply({ content: 'Pick a date from the dropdown above first. (After you select a date, I’ll open a private picker.)', ephemeral: true });
+    return;
   }
 }
 
 export async function onSelectMenu(interaction) {
+  // NEW: handle the public date dropdown so it doesn't "interaction failed"
+  if (interaction.customId === 'date_select') {
+    const date = interaction.values[0];
+    // Acknowledge and present a private mini-panel for this user only
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`add_hours_ep:${date}`).setLabel('Add Hours').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`remove_hours_ep:${date}`).setLabel('Remove Hours').setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId(`edit_hours_ep:${date}`).setLabel('Edit My Hours').setStyle(ButtonStyle.Primary)
+    );
+    await interaction.reply({
+      ephemeral: true,
+      content: `📅 Date selected: **${date} (UTC)**. What would you like to do?`,
+      components: [row]
+    });
+    return;
+  }
+
+  // Existing submit handlers for hour multi-selects
   const [action, date] = interaction.customId.split(':');
   if (!['add_hours_submit','remove_hours_submit','edit_hours_submit'].includes(action)) return;
 
