@@ -24,41 +24,52 @@ function hourMultiSelect(customId, placeholder, preSelected = []) {
 export async function onButton(interaction) {
   // --- King presses the DM button to notify assignees (sent via DM by tick.js) ---
   if (interaction.customId.startsWith('notify_assignees:')) {
-    const [, guildId, date, hourStr] = interaction.customId.split(':');
-    const hour = parseInt(hourStr, 10);
+    const [, guildId, dateStr, hourStr] = interaction.customId.split(':');
+    const hour = Number.parseInt(hourStr, 10);
 
     // Compute previous slot in UTC (handles 00:00 -> previous day 23:00)
-    const d = new Date(`${date}T${String(hour).padStart(2, '0')}:00:00Z`);
+    const d = new Date(`${dateStr}T${String(hour).padStart(2, '0')}:00:00Z`);
     d.setUTCHours(d.getUTCHours() - 1);
     const prevDate = d.toISOString().slice(0, 10);
     const prevHour = d.getUTCHours();
 
     try {
-      // Current and previous assignees
+      // Current assignees (with explicit casts to avoid type mismatch)
       const { rows: currRows } = await q(
-        `SELECT user_id FROM shifts WHERE guild_id=$1 AND date_utc=$2 AND hour=$3`,
-        [guildId, date, hour]
-      );
-      const { rows: prevRows } = await q(
-        `SELECT user_id FROM shifts WHERE guild_id=$1 AND date_utc=$2 AND hour=$3`,
-        [guildId, prevDate, prevHour]
+        `SELECT user_id
+           FROM shifts
+          WHERE guild_id = $1
+            AND date_utc = $2::date
+            AND hour = $3::int`,
+        [guildId, dateStr, hour]
       );
 
       if (!currRows.length) {
         await interaction.reply({
-          content: `No assignees for ${date} ${String(hour).padStart(2, '0')}:00 UTC.`,
+          content: `No assignees found for **${dateStr} ${String(hour).padStart(2,'0')}:00 UTC**. ` +
+                   `Tip: check \`/roster list date:${dateStr}\`.`,
         });
         return;
       }
+
+      // Previous hour assignees
+      const { rows: prevRows } = await q(
+        `SELECT user_id
+           FROM shifts
+          WHERE guild_id = $1
+            AND date_utc = $2::date
+            AND hour = $3::int`,
+        [guildId, prevDate, prevHour]
+      );
 
       const currSet = new Set(currRows.map(r => r.user_id));
       const prevSet = new Set(prevRows.map(r => r.user_id));
 
       // Coming OFF = prev minus current; Going ON = current
       const comingOff = [...prevSet].filter(uid => !currSet.has(uid));
-      const goingOn = [...currSet];
+      const goingOn   = [...currSet];
 
-      // Get buff role
+      // Swap the Buff role if configured
       const { rows: gset } = await q(
         `SELECT buff_role_id FROM guild_settings WHERE guild_id=$1`,
         [guildId]
@@ -67,21 +78,21 @@ export async function onButton(interaction) {
 
       if (buffRoleId) {
         const guild = await interaction.client.guilds.fetch(guildId);
-        const role = await guild.roles.fetch(buffRoleId).catch(() => null);
+        const role  = await guild.roles.fetch(buffRoleId).catch(() => null);
 
         if (role) {
           // Remove from users coming OFF
           for (const uid of comingOff) {
             try {
-              const member = await guild.members.fetch(uid);
-              await member.roles.remove(role).catch(() => {});
+              const m = await guild.members.fetch(uid);
+              await m.roles.remove(role).catch(() => {});
             } catch {}
           }
           // Add to users going ON
           for (const uid of goingOn) {
             try {
-              const member = await guild.members.fetch(uid);
-              await member.roles.add(role).catch(() => {});
+              const m = await guild.members.fetch(uid);
+              await m.roles.add(role).catch(() => {});
             } catch {}
           }
         }
@@ -92,22 +103,19 @@ export async function onButton(interaction) {
         try {
           const user = await interaction.client.users.fetch(r.user_id);
           await user.send(
-            `👑 The King has assigned you for **${date} ${String(hour).padStart(
-              2,
-              '0'
+            `👑 The King has assigned you for **${dateStr} ${String(hour).padStart(
+              2,'0'
             )}:00 UTC**. Please take position.`
           );
         } catch {}
       }
 
       await interaction.reply({
-        content:
-          '✅ Updated the shift role (removed only from previous assignee(s) not on this slot) and notified current assignees by DM.',
+        content: `✅ Updated role and notified assignees for **${dateStr} ${String(hour).padStart(2,'0')}:00 UTC**.`,
       });
     } catch (e) {
       await interaction.reply({
-        content:
-          '⚠️ Could not update roles or notify assignees. Check my permissions and role position.',
+        content: `⚠️ Could not update roles or notify assignees. (${e.message || 'unknown error'})`,
       });
     }
     return;
@@ -206,9 +214,7 @@ export async function onSelectMenu(interaction) {
   // Multi-select submit handlers
   const [action, date] = interaction.customId.split(':');
   if (
-    !['add_hours_submit', 'remove_hours_submit', 'edit_hours_submit'].includes(
-      action
-    )
+    !['add_hours_submit', 'remove_hours_submit', 'edit_hours_submit'].includes(action)
   ) return;
 
   const hours = interaction.values.map((v) => parseInt(v, 10));
@@ -248,9 +254,7 @@ export async function onSelectMenu(interaction) {
     );
     const categoryId = gset[0]?.category_id;
     if (categoryId) {
-      const category = await interaction.client.channels
-        .fetch(categoryId)
-        .catch(() => null);
+      const category = await interaction.client.channels.fetch(categoryId).catch(() => null);
       const ch = category?.children?.cache?.find((c) => c.name === date);
       if (ch) {
         const { rows } = await q(
