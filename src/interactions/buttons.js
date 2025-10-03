@@ -22,27 +22,73 @@ function hourMultiSelect(customId, placeholder, preSelected = []) {
 }
 
 export async function onButton(interaction) {
-  // --- King presses the DM button to notify assignees (sent by tick.js in a DM) ---
+  // --- King presses the DM button to notify assignees (sent via DM by tick.js) ---
   if (interaction.customId.startsWith('notify_assignees:')) {
     const [, guildId, date, hourStr] = interaction.customId.split(':');
     const hour = parseInt(hourStr, 10);
 
+    // Compute previous slot in UTC (handles 00:00 -> previous day 23:00)
+    const d = new Date(`${date}T${String(hour).padStart(2, '0')}:00:00Z`);
+    d.setUTCHours(d.getUTCHours() - 1);
+    const prevDate = d.toISOString().slice(0, 10);
+    const prevHour = d.getUTCHours();
+
     try {
-      const { rows } = await q(
+      // Current and previous assignees
+      const { rows: currRows } = await q(
         `SELECT user_id FROM shifts WHERE guild_id=$1 AND date_utc=$2 AND hour=$3`,
         [guildId, date, hour]
       );
+      const { rows: prevRows } = await q(
+        `SELECT user_id FROM shifts WHERE guild_id=$1 AND date_utc=$2 AND hour=$3`,
+        [guildId, prevDate, prevHour]
+      );
 
-      if (!rows.length) {
-        // In DMs, ephemeral isn't supported; regular reply is fine
+      if (!currRows.length) {
         await interaction.reply({
           content: `No assignees for ${date} ${String(hour).padStart(2, '0')}:00 UTC.`,
         });
         return;
       }
 
-      // DM each assignee
-      for (const r of rows) {
+      const currSet = new Set(currRows.map(r => r.user_id));
+      const prevSet = new Set(prevRows.map(r => r.user_id));
+
+      // Coming OFF = prev minus current; Going ON = current
+      const comingOff = [...prevSet].filter(uid => !currSet.has(uid));
+      const goingOn = [...currSet];
+
+      // Get buff role
+      const { rows: gset } = await q(
+        `SELECT buff_role_id FROM guild_settings WHERE guild_id=$1`,
+        [guildId]
+      );
+      const buffRoleId = gset[0]?.buff_role_id;
+
+      if (buffRoleId) {
+        const guild = await interaction.client.guilds.fetch(guildId);
+        const role = await guild.roles.fetch(buffRoleId).catch(() => null);
+
+        if (role) {
+          // Remove from users coming OFF
+          for (const uid of comingOff) {
+            try {
+              const member = await guild.members.fetch(uid);
+              await member.roles.remove(role).catch(() => {});
+            } catch {}
+          }
+          // Add to users going ON
+          for (const uid of goingOn) {
+            try {
+              const member = await guild.members.fetch(uid);
+              await member.roles.add(role).catch(() => {});
+            } catch {}
+          }
+        }
+      }
+
+      // DM each current assignee
+      for (const r of currRows) {
         try {
           const user = await interaction.client.users.fetch(r.user_id);
           await user.send(
@@ -51,28 +97,29 @@ export async function onButton(interaction) {
               '0'
             )}:00 UTC**. Please take position.`
           );
-        } catch {
-          // ignore DM failures
-        }
+        } catch {}
       }
 
-      await interaction.reply({ content: '✅ Notified the assignees by DM.' });
+      await interaction.reply({
+        content:
+          '✅ Updated the shift role (removed only from previous assignee(s) not on this slot) and notified current assignees by DM.',
+      });
     } catch (e) {
       await interaction.reply({
         content:
-          '⚠️ Could not notify assignees (I may not have permission to DM them).',
+          '⚠️ Could not update roles or notify assignees. Check my permissions and role position.',
       });
     }
     return;
   }
 
-  // --- Ephemeral add/remove/edit that include the date in the custom id ---
+  // --- Ephemeral add/remove/edit flows (date baked into custom id) ---
   if (
     interaction.customId.startsWith('add_hours_ep:') ||
     interaction.customId.startsWith('remove_hours_ep:') ||
     interaction.customId.startsWith('edit_hours_ep:')
   ) {
-    const [action, date] = interaction.customId.split(':'); // e.g., add_hours_ep:2025-10-05
+    const [action, date] = interaction.customId.split(':');
 
     const { rows } = await q(
       `SELECT hour FROM shifts WHERE guild_id=$1 AND date_utc=$2 AND user_id=$3 ORDER BY hour`,
@@ -112,7 +159,7 @@ export async function onButton(interaction) {
     return;
   }
 
-  // --- Fallback for legacy public buttons: ask them to pick a date first ---
+  // --- Legacy public buttons: ask them to pick a date first ---
   if (
     interaction.customId === 'add_hours' ||
     interaction.customId === 'remove_hours' ||
@@ -162,8 +209,7 @@ export async function onSelectMenu(interaction) {
     !['add_hours_submit', 'remove_hours_submit', 'edit_hours_submit'].includes(
       action
     )
-  )
-    return;
+  ) return;
 
   const hours = interaction.values.map((v) => parseInt(v, 10));
   const userId = interaction.user.id;
