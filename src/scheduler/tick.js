@@ -78,12 +78,10 @@ export function startTick(client) {
                 const dm = await member.createDM().catch(() => null);
                 if (!dm) continue;
 
+                // inside if (changed) {...} after you find role members
                 await dm.send({
-                  content: `👑 Heads up: upcoming slot **${d2} ${String(h2).padStart(
-                    2,
-                    '0'
-                  )}:00 UTC** has **changed assignees**.  
-When you’ve put them in position, tap below to notify them by DM.`,
+                content: `👑 Heads up: upcoming slot **${d2} ${String(h2).padStart(2,'0')}:00 UTC** has **changed assignees**.  
+When you’ve put them in position, tap below to notify them by DM, or quickly copy their names.`,
                   components: [
                     {
                       type: 1,
@@ -93,6 +91,12 @@ When you’ve put them in position, tap below to notify them by DM.`,
                           style: 1, // Primary
                           custom_id: `notify_assignees:${g.guild_id}:${d2}:${h2}`,
                           label: 'Notify Assignees Now'
+                        },
+                        {
+                          type: 2,
+                          style: 2, // Secondary
+                          custom_id: `list_assignees:${g.guild_id}:${d2}:${h2}`,
+                          label: 'Copy Names'
                         }
                       ]
                     }
