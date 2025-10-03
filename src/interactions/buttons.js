@@ -67,7 +67,7 @@ export async function onButton(interaction) {
     return;
   }
 
-  // --- King presses the DM button to copy assignee names ---
+  // --- King presses the DM button to copy assignee names (single-line for easy copy) ---
   if (interaction.customId.startsWith('list_assignees:')) {
     const [, guildId, dateStr, hourStr] = interaction.customId.split(':');
     const hour = Number.parseInt(hourStr, 10);
@@ -187,16 +187,18 @@ export async function onSelectMenu(interaction) {
       return;
     }
 
-    // Permission: must be R5 OR have ManageRoles/Admin
+    // Permission: allow if member has R5 role, or is server owner, or has Administrator.
+    // They do NOT need Manage Roles.
     const member = await interaction.guild.members.fetch(interaction.user.id);
     const isR5 = r5RoleId ? member.roles.cache.has(r5RoleId) : false;
-    const hasPerm =
-      isR5 ||
-      member.permissions.has('ManageRoles') ||
-      member.permissions.has('Administrator');
+    const isOwner = interaction.guild.ownerId === member.id;
+    const isAdmin = member.permissions.has('Administrator');
 
-    if (!hasPerm) {
-      await interaction.reply({ content: '❌ You do not have permission to manage the King role.', ephemeral: true });
+    if (!(isR5 || isOwner || isAdmin)) {
+      await interaction.reply({
+        content: '❌ You are not allowed to manage the King role. (Requires the configured R5 role, or be server owner/admin.)',
+        ephemeral: true
+      });
       return;
     }
 
@@ -220,26 +222,61 @@ export async function onSelectMenu(interaction) {
       return;
     }
 
-    // Apply role changes
-    const userIds = interaction.values; // user IDs selected
-    const grant = interaction.customId === 'king_grant';
+    // Selected users from the user select menu
+    const selectedIds = interaction.values; // array of user IDs
+    const grant = (interaction.customId === 'king_grant');
 
     const results = [];
-    for (const uid of userIds) {
-      try {
-        const m = await interaction.guild.members.fetch(uid);
-        if (grant) {
-          await m.roles.add(kingRole).catch(() => {});
-          results.push(`✅ Granted ${m.displayName || m.user.username}`);
-        } else {
-          await m.roles.remove(kingRole).catch(() => {});
-          results.push(`✅ Revoked ${m.displayName || m.user.username}`);
-        }
-      } catch {
-        results.push(`⚠️ Failed for <@${uid}>`);
+
+    if (grant) {
+      // --- SINGLE-SOURCE OF TRUTH: only the selected users keep the King role ---
+      // 1) Remove King role from everyone who currently has it but isn't selected
+      const toRemove = [];
+      for (const [, m] of kingRole.members) {
+        if (!selectedIds.includes(m.id)) toRemove.push(m);
       }
+      for (const m of toRemove) {
+        try {
+          await m.roles.remove(kingRole).catch(() => {});
+          results.push(`🗑️ Removed King from ${m.displayName || m.user.username}`);
+        } catch {
+          results.push(`⚠️ Failed removing King from <@${m.id}>`);
+        }
+      }
+
+      // 2) Ensure the selected users have the role
+      for (const uid of selectedIds) {
+        try {
+          const m = await interaction.guild.members.fetch(uid);
+        if (!m.roles.cache.has(kingRole.id)) {
+            await m.roles.add(kingRole).catch(() => {});
+            results.push(`✅ Granted King to ${m.displayName || m.user.username}`);
+          } else {
+            results.push(`ℹ️ ${m.displayName || m.user.username} already has King`);
+          }
+        } catch {
+          results.push(`⚠️ Failed granting King to <@${uid}>`);
+        }
+      }
+
+      await interaction.reply({ content: results.join('\n'), ephemeral: true });
+      return;
     }
 
+    // revoke branch: just remove from the selected users
+    for (const uid of selectedIds) {
+      try {
+        const m = await interaction.guild.members.fetch(uid);
+        if (m.roles.cache.has(kingRole.id)) {
+          await m.roles.remove(kingRole).catch(() => {});
+          results.push(`✅ Revoked King from ${m.displayName || m.user.username}`);
+        } else {
+          results.push(`ℹ️ ${m.displayName || m.user.username} did not have King`);
+        }
+      } catch {
+        results.push(`⚠️ Failed revoking King from <@${uid}>`);
+      }
+    }
     await interaction.reply({ content: results.join('\n'), ephemeral: true });
     return;
   }
