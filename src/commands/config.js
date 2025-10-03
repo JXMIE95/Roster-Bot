@@ -103,7 +103,7 @@ export default {
         [interaction.guildId, role.id]
       );
       return interaction.reply({
-        content: `🎖️ R5 role set to ${role}. Members with this role will be able to assign the King role.`,
+        content: `🎖️ R5 role set to ${role}. Members with this role can use the King Assignment panel.`,
         ephemeral: true
       });
     }
