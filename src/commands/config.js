@@ -31,6 +31,12 @@ export default {
         options: [{ name: 'role', type: 8, description: 'Role', required: true }]
       },
       {
+        name: 'r5role',
+        description: 'Set the R5 role (can assign King)',
+        type: 1,
+        options: [{ name: 'role', type: 8, description: 'Role', required: true }]
+      },
+      {
         name: 'show',
         description: 'Show current configuration',
         type: 1
@@ -88,9 +94,23 @@ export default {
       });
     }
 
+    if (sub === 'r5role') {
+      const role = interaction.options.getRole('role');
+      await q(
+        `INSERT INTO guild_settings(guild_id, r5_role_id)
+         VALUES ($1,$2)
+         ON CONFLICT(guild_id) DO UPDATE SET r5_role_id=EXCLUDED.r5_role_id`,
+        [interaction.guildId, role.id]
+      );
+      return interaction.reply({
+        content: `🎖️ R5 role set to ${role}. Members with this role will be able to assign the King role.`,
+        ephemeral: true
+      });
+    }
+
     if (sub === 'show') {
       const { rows } = await q(
-        `SELECT king_role_id, buff_role_id, notify_lead_minutes, king_change_lead_minutes
+        `SELECT king_role_id, buff_role_id, r5_role_id, notify_lead_minutes, king_change_lead_minutes
          FROM guild_settings WHERE guild_id=$1`,
         [interaction.guildId]
       );
@@ -101,6 +121,7 @@ export default {
             `**Current config:**`,
             `• King role: ${g.king_role_id ? `<@&${g.king_role_id}>` : '—'}`,
             `• Buff role: ${g.buff_role_id ? `<@&${g.buff_role_id}>` : '—'}`,
+            `• R5 role: ${g.r5_role_id ? `<@&${g.r5_role_id}>` : '—'}`,
             `• User lead minutes: ${g.notify_lead_minutes ?? 15}`,
             `• King lead minutes: ${g.king_change_lead_minutes ?? 10}`
           ].join('\n'),
