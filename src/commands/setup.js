@@ -7,7 +7,7 @@ import {
 import { q } from '../db/pool.js';
 import { nowUtc } from '../util/time.js';
 import { upsertDayMessage } from '../util/dayMessage.js';
-import { rosterPanelComponents } from '../util/embeds.js'; // must export this from your util
+import { rosterPanelComponents, kingAssignmentEmbed, kingAssignmentComponents } from '../util/embeds.js';
 import { hoursArray } from '../util/time.js';
 
 // Helper: next 7 UTC dates as 'YYYY-MM-DD'
@@ -19,7 +19,7 @@ function next7DatesUtc() {
 export default {
   data: {
     name: 'setup',
-    description: 'Initial setup: create category, week channels, and post the roster panel'
+    description: 'Initial setup: create category, week channels, and post the roster + king assignment panels'
   },
 
   execute: async (interaction) => {
@@ -53,9 +53,8 @@ export default {
     const dates = next7DatesUtc();
     const keepNames = new Set(dates);
 
-    // Remove any old date channels under the category that aren’t in the next 7
     try {
-      const children = category.children ?? category; // discord.js v14: category.children is a ChannelManager-like
+      const children = category.children ?? category;
       for (const [, ch] of children.cache) {
         if (ch.type === ChannelType.GuildText && !keepNames.has(ch.name)) {
           await ch.delete().catch(() => {});
@@ -63,7 +62,6 @@ export default {
       }
     } catch {}
 
-    // For each date, ensure a text channel and upsert the roster message
     for (const date of dates) {
       let ch = category.children?.cache?.find(c => c.name === date);
       if (!ch) {
@@ -74,7 +72,6 @@ export default {
         });
       }
 
-      // Build empty slots structure (so message renders even before signups)
       const slots = hoursArray().map(h => ({
         hour: h,
         users: [],
@@ -87,10 +84,9 @@ export default {
       }
     }
 
-    // 3) Post the instructions embed + panel in the channel where /setup was used
+    // 3) Post the instructions embed + roster panel in the channel where /setup was used
     const panelChannel = interaction.channel;
 
-    // Instructions embed (posted BEFORE the panel)
     const instructions = new EmbedBuilder()
       .setColor(0x2ecc71)
       .setTitle('📖 Buff Giver Roster – How it Works')
@@ -125,21 +121,27 @@ export default {
       )
       .setFooter({ text: '👉 Roster your hours, check your DMs, be ready to give buffs!' });
 
-    const panelDates = dates; // next 7 days for the dropdown
-    const components = rosterPanelComponents(panelDates); // uses your util to build dropdown + buttons
+    const panelDates = dates;
+    const components = rosterPanelComponents(panelDates);
 
-    // Send instructions first, then the panel
     const instrMsg = await panelChannel.send({ embeds: [instructions] }).catch(() => null);
-    if (!instrMsg) {
-      return interaction.editReply('⚠️ Could not post the instructions embed.');
-    }
+    if (!instrMsg) return interaction.editReply('⚠️ Could not post the instructions embed.');
 
     const panelMsg = await panelChannel.send({ components }).catch(() => null);
-    if (!panelMsg) {
-      return interaction.editReply('⚠️ Could not post the roster panel.');
+    if (!panelMsg) return interaction.editReply('⚠️ Could not post the roster panel.');
+
+    // 4) Post the King Assignment panel (embed + user select menus)
+    try {
+      const kaEmbed = kingAssignmentEmbed();
+      const kaComponents = kingAssignmentComponents();
+      await panelChannel.send({ embeds: [kaEmbed] });
+      await panelChannel.send({ components: kaComponents });
+    } catch (e) {
+      console.error('setup: king assignment panel error', e);
+      // continue even if this fails
     }
 
-    // 4) Save ids to DB for later updates
+    // 5) Save ids to DB for later updates
     await q(
       `INSERT INTO guild_settings (guild_id, category_id, panel_channel_id, panel_message_id)
        VALUES ($1,$2,$3,$4)
@@ -150,6 +152,6 @@ export default {
       [guild.id, category.id, panelChannel.id, panelMsg.id]
     );
 
-    await interaction.editReply('✅ Setup complete! Posted instructions and the roster panel.');
+    await interaction.editReply('✅ Setup complete! Posted instructions, the roster panel, and the King Assignment panel.');
   }
 };
