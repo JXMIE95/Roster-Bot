@@ -11,6 +11,10 @@ CREATE TABLE IF NOT EXISTS guild_settings (
   timezone TEXT DEFAULT 'UTC'
 );
 
+-- Ensure buff_role_id exists even if the table was created before it was added
+ALTER TABLE guild_settings
+  ADD COLUMN IF NOT EXISTS buff_role_id TEXT;
+
 -- Users cache (optional)
 CREATE TABLE IF NOT EXISTS users (
   user_id TEXT PRIMARY KEY,
