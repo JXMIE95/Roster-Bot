@@ -14,19 +14,24 @@ export default {
     ]
   },
   execute: async (interaction) => {
-    const sub = interaction.options.getSubcommand();
-    let date, hour;
-    if (sub === 'now') {
-      const d = nowUtc();
-      date = d.format('YYYY-MM-DD'); hour = d.hour();
-    } else {
-      date = interaction.options.getString('date');
-      hour = interaction.options.getInteger('hour');
-    }
-    const { rows } = await q(`SELECT user_id FROM shifts WHERE guild_id=$1 AND date_utc=$2 AND hour=$3`, [interaction.guildId, date, hour]);
-    if (!rows.length) return interaction.reply({ content:`No assignees for ${date} ${String(hour).padStart(2,'0')}:00 UTC.`, ephemeral:true });
-    const mentions = rows.map(r=>`<@${r.user_id}>`).join(' ');
-    await interaction.channel.send(`👑 The King has confirmed: ${mentions} you are now in **position** for **${date} ${String(hour).padStart(2,'0')}:00 UTC**.`);
-    return interaction.reply({ content:'Notified.', ephemeral:true });
+  const sub = interaction.options.getSubcommand();
+  let date, hour;
+  if (sub === 'now') {
+    const d = nowUtc();
+    date = d.format('YYYY-MM-DD'); hour = d.hour();
+  } else {
+    date = interaction.options.getString('date');
+    hour = interaction.options.getInteger('hour');
   }
-};
+  const { rows } = await q(`SELECT user_id FROM shifts WHERE guild_id=$1 AND date_utc=$2 AND hour=$3`,
+    [interaction.guildId, date, hour]);
+  if (!rows.length) return interaction.reply({ content:`No assignees for ${date} ${String(hour).padStart(2,'0')}:00 UTC.`, ephemeral:true });
+
+  for (const r of rows) {
+    try {
+      const user = await interaction.client.users.fetch(r.user_id);
+      await user.send(`👑 The King has assigned you for **${date} ${String(hour).padStart(2,'0')}:00 UTC**. Please take position.`);
+    } catch {}
+  }
+  return interaction.reply({ content:'✅ Notified assignees by DM.', ephemeral:true });
+}
