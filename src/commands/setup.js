@@ -66,6 +66,17 @@ export default {
     const rosterPanelChannel = await ensureText('roster-panel');
     const kingAssignmentChannel = await ensureText('king-assignment');
 
+    // Put control channels at the very top of the category
+    try {
+      await rosterPanelChannel.setPosition(0).catch(() => {});
+      await kingAssignmentChannel.setPosition(1).catch(() => {});
+      // Fallback for some shards: force positions via edit
+      await rosterPanelChannel.edit({ position: 0 }).catch(() => {});
+      await kingAssignmentChannel.edit({ position: 1 }).catch(() => {});
+    } catch (e) {
+      console.warn('setup: could not pin control channels to top', e);
+    }
+
     // 3) Ensure 7 day channels (named YYYY-MM-DD), delete extras, and upsert each day embed
     const dates = next7DatesUtc();
     const keepNames = new Set(dates);
@@ -118,10 +129,11 @@ export default {
           value:
             `1. Use the **📅 Date menu** below to pick a day\n` +
             `2. Choose:\n` +
-            `   • ✅ **Add Hours** – sign up\n` +
-            `   • ❌ **Remove Hours** – leave a shift\n` +
-            `   • ✏️ **Edit My Hours** – adjust your hours`
+            `   ✅ **Add Hours** – select your availability\n` +
+            `   ❌ **Remove Hours** – leave a shift\n` +
+            `   ✏️ **Edit My Hours** – adjust your hours`
         },
+        
         {
           name: '🔔 Notifications',
           value:
@@ -129,6 +141,7 @@ export default {
             `• The **King** gets a DM when assignees change\n` +
             `• When the King confirms, Buff Givers are DM’d to notify them they have been assigned`
         },
+        
         {
           name: '⚔️ Roles',
           value:
@@ -147,7 +160,7 @@ export default {
     // 5) Post the King Assignment panel in #king-assignment
     try {
       const kaEmbed = kingAssignmentEmbed();
-      const kaComponents = kingAssignmentComponents();
+      const kaComponents = kingAssignmentComponents(); // single "Grant King" selector (no revoke)
       await kingAssignmentChannel.send({ embeds: [kaEmbed] });
       await kingAssignmentChannel.send({ components: kaComponents });
     } catch (e) {
@@ -166,6 +179,6 @@ export default {
       [guild.id, category.id, rosterPanelChannel.id, panelMsg.id]
     );
 
-    await interaction.editReply('✅ Setup complete! Created category, day channels, **#roster-panel**, and **#king-assignment**.');
+    await interaction.editReply('✅ Setup complete! Created category, pinned **#roster-panel** and **#king-assignment** above date channels, and posted both panels.');
   }
 };
