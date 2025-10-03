@@ -2,6 +2,7 @@
 CREATE TABLE IF NOT EXISTS guild_settings (
   guild_id TEXT PRIMARY KEY,
   king_role_id TEXT,
+  buff_role_id TEXT,
   category_id TEXT,
   panel_channel_id TEXT,
   panel_message_id TEXT,
