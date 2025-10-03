@@ -4,10 +4,14 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "register": "node src/registerCommands.js",
-    "db:init": "psql \"$DATABASE_URL\" -f src/db/schema.sql"
-  },
+  "start": "node src/index.js",
+  "register": "node src/registerCommands.js",
+  "db:init": "node src/db/init.js",
+  "postinstall": "npm run db:init && npm run register"
+},
+"engines": {
+  "node": ">=18.17 <23"
+}
   "engines": {
     "node": ">=18.17 <23"
   },
