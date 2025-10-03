@@ -50,7 +50,7 @@ export default {
       try {
         const user = await interaction.client.users.fetch(r.user_id);
         await user.send(
-          `👑 The King has assigned you for **${date} ${String(hour).padStart(
+          `👑 The King has assigned you as a **Buff Giver** for **${date} ${String(hour).padStart(
             2,
             '0'
           )}:00 UTC**. Please take position.`
