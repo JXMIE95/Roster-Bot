@@ -9,9 +9,6 @@
   "db:init": "node src/db/init.js",
   "postinstall": ""
 },
-"engines": {
-  "node": ">=18.17 <23"
-}
   "engines": {
     "node": ">=18.17 <23"
   },
