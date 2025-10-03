@@ -129,21 +129,21 @@ export default {
           value:
             `1. Use the **📅 Date menu** below to pick a day\n` +
             `2. Choose:\n` +
-            `   ✅ **Add Hours** – select your availability\n` +
-            `   ❌ **Remove Hours** – leave a shift\n` +
-            `   ✏️ **Edit My Hours** – adjust your hours`
+            `   \n\n✅ **Add Hours** – select your availability\n` +
+            `   \n\n❌ **Remove Hours** – leave a shift\n` +
+            `   \n\n✏️ **Edit My Hours** – adjust your hours`
         },
         
         {
           name: '🔔 Notifications',
           value:
-            `• Buff Givers get a **DM reminder** before their shift\n` +
-            `• The **King** gets a DM when assignees change\n` +
-            `• When the King confirms, Buff Givers are DM’d to notify them they have been assigned`
+            `- Buff Givers get a **DM reminder** before their shift\n` +
+            `- The **King** gets a DM when assignees change\n` +
+            `- When the King confirms, Buff Givers are DM’d to notify them they have been assigned`
         },
         
         {
-          name: '⚔️ Roles',
+          \n\nname: '⚔️ Roles',
           value:
             `The bot will **add the Buff Giver role** when your shift starts, and **remove it** when your shift ends.`
         }
