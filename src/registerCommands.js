@@ -26,7 +26,16 @@ const cmds = [
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 async function main() {
-  await rest.put(Routes.applicationCommands(process.env.DISCORD_APP_ID), { body: cmds });
-  console.log('Registered slash commands globally.');
+  const appId = process.env.DISCORD_APP_ID;
+  if (!appId) throw new Error('Missing DISCORD_APP_ID');
+  const guildId = process.env.GUILD_ID;
+
+  if (guildId) {
+    await rest.put(Routes.applicationGuildCommands(appId, guildId), { body: cmds });
+    console.log('Registered slash commands to guild:', guildId);
+  } else {
+    await rest.put(Routes.applicationCommands(appId), { body: cmds });
+    console.log('Registered slash commands globally.');
+  }
 }
 main().catch(console.error);
