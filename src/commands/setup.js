@@ -19,27 +19,25 @@ function next7DatesUtc() {
 export default {
   data: {
     name: 'setup',
-    description: 'Initial setup: create category, week channels, and post the roster + king assignment panels'
+    description: 'Create category, week channels, and post roster + king assignment panels'
   },
 
   execute: async (interaction) => {
     await interaction.deferReply({ ephemeral: true });
-
     const guild = interaction.guild;
 
     // 1) Create or reuse the "Buff Givers Roster" category
     let category;
-    const wantedName = 'Buff Givers Roster';
+    const categoryName = 'Buff Givers Roster';
     try {
       category = guild.channels.cache.find(
-        c => c.type === ChannelType.GuildCategory && c.name === wantedName
+        c => c.type === ChannelType.GuildCategory && c.name === categoryName
       );
       if (!category) {
         category = await guild.channels.create({
-          name: wantedName,
+          name: categoryName,
           type: ChannelType.GuildCategory,
           permissionOverwrites: [
-            // (Optional) everyone can read
             { id: guild.roles.everyone.id, allow: [PermissionFlagsBits.ViewChannel] }
           ]
         });
@@ -49,14 +47,37 @@ export default {
       return interaction.editReply('⚠️ Could not create/find the category.');
     }
 
-    // 2) Ensure 7 day channels exist (named YYYY-MM-DD), delete extras, and post/refresh the day embed
+    // 2) Create (or reuse) the two control channels under the category
+    async function ensureText(name) {
+      let ch = category.children?.cache?.find(c => c.type === ChannelType.GuildText && c.name === name);
+      if (!ch) {
+        ch = await guild.channels.create({
+          name,
+          type: ChannelType.GuildText,
+          parent: category.id,
+          permissionOverwrites: [
+            { id: guild.roles.everyone.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
+          ]
+        });
+      }
+      return ch;
+    }
+
+    const rosterPanelChannel = await ensureText('roster-panel');
+    const kingAssignmentChannel = await ensureText('king-assignment');
+
+    // 3) Ensure 7 day channels (named YYYY-MM-DD), delete extras, and upsert each day embed
     const dates = next7DatesUtc();
     const keepNames = new Set(dates);
 
     try {
       const children = category.children ?? category;
       for (const [, ch] of children.cache) {
-        if (ch.type === ChannelType.GuildText && !keepNames.has(ch.name)) {
+        if (
+          ch.type === ChannelType.GuildText &&
+          /^\d{4}-\d{2}-\d{2}$/.test(ch.name) &&  // only consider date-named channels
+          !keepNames.has(ch.name)
+        ) {
           await ch.delete().catch(() => {});
         }
       }
@@ -72,11 +93,8 @@ export default {
         });
       }
 
-      const slots = hoursArray().map(h => ({
-        hour: h,
-        users: [],
-        remaining: 2
-      }));
+      // Build empty slots structure (so message renders even before signups)
+      const slots = hoursArray().map(h => ({ hour: h, users: [], remaining: 2 }));
       try {
         await upsertDayMessage(interaction.client, guild.id, ch, date, slots);
       } catch (e) {
@@ -84,9 +102,7 @@ export default {
       }
     }
 
-    // 3) Post the instructions embed + roster panel in the channel where /setup was used
-    const panelChannel = interaction.channel;
-
+    // 4) Post the instructions embed + roster panel in #roster-panel
     const instructions = new EmbedBuilder()
       .setColor(0x2ecc71)
       .setTitle('📖 Buff Giver Roster – How it Works')
@@ -121,27 +137,25 @@ export default {
       )
       .setFooter({ text: '👉 Roster your hours, check your DMs, be ready to give buffs!' });
 
-    const panelDates = dates;
-    const components = rosterPanelComponents(panelDates);
+    const panelComponents = rosterPanelComponents(dates);
+    const instrMsg = await rosterPanelChannel.send({ embeds: [instructions] }).catch(() => null);
+    if (!instrMsg) return interaction.editReply('⚠️ Could not post the instructions embed in #roster-panel.');
 
-    const instrMsg = await panelChannel.send({ embeds: [instructions] }).catch(() => null);
-    if (!instrMsg) return interaction.editReply('⚠️ Could not post the instructions embed.');
+    const panelMsg = await rosterPanelChannel.send({ components: panelComponents }).catch(() => null);
+    if (!panelMsg) return interaction.editReply('⚠️ Could not post the roster panel in #roster-panel.');
 
-    const panelMsg = await panelChannel.send({ components }).catch(() => null);
-    if (!panelMsg) return interaction.editReply('⚠️ Could not post the roster panel.');
-
-    // 4) Post the King Assignment panel (embed + user select menus)
+    // 5) Post the King Assignment panel in #king-assignment
     try {
       const kaEmbed = kingAssignmentEmbed();
       const kaComponents = kingAssignmentComponents();
-      await panelChannel.send({ embeds: [kaEmbed] });
-      await panelChannel.send({ components: kaComponents });
+      await kingAssignmentChannel.send({ embeds: [kaEmbed] });
+      await kingAssignmentChannel.send({ components: kaComponents });
     } catch (e) {
       console.error('setup: king assignment panel error', e);
-      // continue even if this fails
+      // Non-fatal
     }
 
-    // 5) Save ids to DB for later updates
+    // 6) Save roster panel ids (schema only has one set of fields; store the roster-panel there)
     await q(
       `INSERT INTO guild_settings (guild_id, category_id, panel_channel_id, panel_message_id)
        VALUES ($1,$2,$3,$4)
@@ -149,9 +163,9 @@ export default {
        DO UPDATE SET category_id=EXCLUDED.category_id,
                      panel_channel_id=EXCLUDED.panel_channel_id,
                      panel_message_id=EXCLUDED.panel_message_id`,
-      [guild.id, category.id, panelChannel.id, panelMsg.id]
+      [guild.id, category.id, rosterPanelChannel.id, panelMsg.id]
     );
 
-    await interaction.editReply('✅ Setup complete! Posted instructions, the roster panel, and the King Assignment panel.');
+    await interaction.editReply('✅ Setup complete! Created category, day channels, **#roster-panel**, and **#king-assignment**.');
   }
 };
