@@ -8,13 +8,14 @@
     "register": "node src/registerCommands.js",
     "db:init": "psql \"$DATABASE_URL\" -f src/db/schema.sql"
   },
+  "engines": {
+    "node": ">=18.17 <23"
+  },
   "dependencies": {
     "discord.js": "^14.15.3",
     "pg": "^8.12.0",
     "node-cron": "^3.0.3",
     "dayjs": "^1.11.13",
-    "dayjs-plugin-utc": "^0.1.2",
-    "dayjs-plugin-timezone": "^0.1.0",
     "dotenv": "^16.4.5"
   }
 }
