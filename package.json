@@ -3,12 +3,12 @@
   "version": "1.0.0",
   "type": "module",
   "main": "src/index.js",
- "scripts": {
-  "start": "node src/db/init.js && node src/registerCommands.js && node src/index.js",
-  "register": "node src/registerCommands.js",
-  "db:init": "node src/db/init.js",
-  "postinstall": ""
-},
+  "scripts": {
+    "start": "node src/db/init.js && node src/registerCommands.js && node src/index.js",
+    "register": "node src/registerCommands.js",
+    "db:init": "node src/db/init.js",
+    "postinstall": ""
+  },
   "engines": {
     "node": ">=18.17 <23"
   },
