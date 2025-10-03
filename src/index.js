@@ -10,7 +10,7 @@ import { startTick } from './scheduler/tick.js';
 import { startDailyMaintenance } from './scheduler/dailyMaintenance.js';
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages, GatewayIntentBits.GuildMembers],
   partials: [Partials.Channel]
 });
 
