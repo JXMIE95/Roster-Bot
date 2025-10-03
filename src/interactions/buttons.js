@@ -1,5 +1,10 @@
 // src/interactions/buttons.js
-import { ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import {
+  ActionRowBuilder,
+  StringSelectMenuBuilder,
+  ButtonBuilder,
+  ButtonStyle
+} from 'discord.js';
 import { q } from '../db/pool.js';
 import { hoursArray } from '../util/time.js';
 import { upsertDayMessage } from '../util/dayMessage.js';
@@ -27,153 +32,80 @@ export async function onButton(interaction) {
     const [, guildId, dateStr, hourStr] = interaction.customId.split(':');
     const hour = Number.parseInt(hourStr, 10);
 
-    // Build a UTC Date for the requested slot
-    const cur = new Date(`${dateStr}T${String(hour).padStart(2, '0')}:00:00Z`);
-
     try {
-      // 1) Strict lookup for the requested slot
-      let lookup = { date: dateStr, hour };
-      let { rows: currRows } = await q(
-        `SELECT user_id
-           FROM shifts
-          WHERE guild_id = $1
-            AND date_utc = $2::date
-            AND hour = $3::int`,
-        [guildId, lookup.date, lookup.hour]
+      const { rows: currRows } = await q(
+        `SELECT user_id FROM shifts
+         WHERE guild_id=$1 AND date_utc=$2::date AND hour=$3::int`,
+        [guildId, dateStr, hour]
       );
-
-      // 2) Fallback to adjacent hours if nothing found (handles last-minute edits or midnight wrap)
-      let fallbackNote = '';
-      if (!currRows.length) {
-        const candidates = [
-          // previous hour (wrap to previous day if needed)
-          (() => {
-            const d = new Date(cur); d.setUTCHours(d.getUTCHours() - 1);
-            return { date: d.toISOString().slice(0,10), hour: d.getUTCHours() };
-          })(),
-          // next hour (wrap to next day if needed)
-          (() => {
-            const d = new Date(cur); d.setUTCHours(d.getUTCHours() + 1);
-            return { date: d.toISOString().slice(0,10), hour: d.getUTCHours() };
-          })()
-        ];
-
-        for (const c of candidates) {
-          const r = await q(
-            `SELECT user_id
-               FROM shifts
-              WHERE guild_id = $1
-                AND date_utc = $2::date
-                AND hour = $3::int`,
-            [guildId, c.date, c.hour]
-          );
-          if (r.rows.length) {
-            lookup = { date: c.date, hour: c.hour };
-            currRows = r.rows;
-            fallbackNote = ` (used **${lookup.date} ${String(lookup.hour).padStart(2,'0')}:00 UTC** after fallback)`;
-            break;
-          }
-        }
-      }
 
       if (!currRows.length) {
         await interaction.reply({
-          content: `No assignees found for **${dateStr} ${String(hour).padStart(2,'0')}:00 UTC**.\n` +
-                   `Tip: run \`/roster list date:${dateStr}\` to confirm hours.`,
+          content: `No assignees found for **${dateStr} ${String(hour).padStart(2, '0')}:00 UTC**.`
         });
         return;
       }
 
-      // Compute previous slot based on the (possibly fallback) lookup
-      const cur2 = new Date(`${lookup.date}T${String(lookup.hour).padStart(2,'0')}:00:00Z`);
-      const prev = new Date(cur2); prev.setUTCHours(prev.getUTCHours() - 1);
-      const prevDate = prev.toISOString().slice(0,10);
-      const prevHour = prev.getUTCHours();
-
-      const { rows: prevRows } = await q(
-        `SELECT user_id
-           FROM shifts
-          WHERE guild_id = $1
-            AND date_utc = $2::date
-            AND hour = $3::int`,
-        [guildId, prevDate, prevHour]
-      );
-
-      const currSet = new Set(currRows.map(r => r.user_id));
-      const prevSet = new Set(prevRows.map(r => r.user_id));
-
-      const comingOff = [...prevSet].filter(uid => !currSet.has(uid)); // remove role from
-      const goingOn   = [...currSet];                                   // add role to
-
-      // 3) Swap the Buff role (with diagnostics)
-      const { rows: gset } = await q(
-        `SELECT buff_role_id FROM guild_settings WHERE guild_id=$1`,
-        [guildId]
-      );
-      const buffRoleId = gset[0]?.buff_role_id;
-
-      let roleOpsMsg = 'ℹ️ No Buff role configured; skipped role changes.';
-      let roleOpsOK = false;
-
-      if (buffRoleId) {
-        const guild = await interaction.client.guilds.fetch(guildId);
-        const me    = await guild.members.fetchMe();
-        const role  = await guild.roles.fetch(buffRoleId).catch(() => null);
-
-        if (!role) {
-          roleOpsMsg = `⚠️ Buff role <@&${buffRoleId}> not found. Re-set with \`/config buffrole\`.`;
-        } else {
-          const canManageRoles = me.permissions.has('ManageRoles');
-          const above          = me.roles.highest.comparePositionTo(role) > 0;
-          const notManaged     = !role.managed;
-
-          if (!canManageRoles) roleOpsMsg = '❌ Missing **Manage Roles** permission.';
-          else if (!above)      roleOpsMsg = '❌ My top role is **not above** the Buff role. Move my role higher.';
-          else if (!notManaged) roleOpsMsg = '❌ Buff role is **managed** by an integration; cannot assign.';
-          else {
-            roleOpsOK = true;
-            try {
-              // Remove from users coming OFF
-              for (const uid of comingOff) {
-                try { const m = await guild.members.fetch(uid); await m.roles.remove(role).catch(()=>{}); } catch {}
-              }
-              // Add to users going ON
-              for (const uid of goingOn) {
-                try { const m = await guild.members.fetch(uid); await m.roles.add(role).catch(()=>{}); } catch {}
-              }
-              roleOpsMsg = '✅ Roles updated for this slot.';
-            } catch (e) {
-              roleOpsMsg = `⚠️ Role update error: ${e.message || e}`;
-            }
-          }
-        }
-      }
-
-      // 4) DM each current assignee
+      // DM each assignee
       for (const r of currRows) {
         try {
           const user = await interaction.client.users.fetch(r.user_id);
           await user.send(
-            `👑 The King has assigned you for **${lookup.date} ${String(lookup.hour).padStart(2,'0')}:00 UTC**. Please take position.`
+            `👑 The King has assigned you for **${dateStr} ${String(hour).padStart(
+              2,
+              '0'
+            )}:00 UTC**. Please take position.`
           );
         } catch {}
       }
 
       await interaction.reply({
-        content: `${roleOpsMsg}\n✅ Notified assignees for **${lookup.date} ${String(lookup.hour).padStart(2,'0')}:00 UTC**.${fallbackNote}`,
+        content: `✅ Notified assignees for **${dateStr} ${String(hour).padStart(2, '0')}:00 UTC**.`
       });
-
-      // Useful server log
-      console.log('[notify_assignees]', {
-        guildId, lookup,
-        comingOff, goingOn,
-        roleConfigured: !!buffRoleId,
-        roleOpsOK, roleOpsMsg
-      });
-
     } catch (e) {
       await interaction.reply({
-        content: `⚠️ Could not update roles or notify assignees. (${e.message || 'unknown error'})`,
+        content: `⚠️ Could not notify assignees. (${e.message || 'unknown error'})`
+      });
+    }
+    return;
+  }
+
+  // --- King presses the DM button to copy assignee names ---
+  if (interaction.customId.startsWith('list_assignees:')) {
+    const [, guildId, dateStr, hourStr] = interaction.customId.split(':');
+    const hour = Number.parseInt(hourStr, 10);
+
+    try {
+      const { rows } = await q(
+        `SELECT user_id FROM shifts
+         WHERE guild_id=$1 AND date_utc=$2::date AND hour=$3::int`,
+        [guildId, dateStr, hour]
+      );
+
+      if (!rows.length) {
+        await interaction.reply({
+          content: `No assignees found for **${dateStr} ${String(hour).padStart(2, '0')}:00 UTC**.`
+        });
+        return;
+      }
+
+      const guild = await interaction.client.guilds.fetch(guildId);
+      const names = [];
+
+      for (const r of rows) {
+        try {
+          const m = await guild.members.fetch(r.user_id);
+          names.push(m.displayName || m.user.username);
+        } catch {
+          names.push(`<@${r.user_id}>`);
+        }
+      }
+
+      const line = names.join(', ');
+      await interaction.reply({ content: line });
+    } catch (e) {
+      await interaction.reply({
+        content: `⚠️ Could not fetch assignee names. (${e.message || 'unknown error'})`
       });
     }
     return;
@@ -245,7 +177,6 @@ export async function onSelectMenu(interaction) {
   if (interaction.customId === 'date_select') {
     const date = interaction.values[0];
 
-    // Private mini-panel for this user with the date baked into button IDs
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`add_hours_ep:${date}`)
@@ -334,7 +265,6 @@ export async function onSelectMenu(interaction) {
     // ignore
   }
 
-  // Replace the ephemeral multi-select with a confirmation
   await interaction.update({
     content: '✅ Saved! Your roster has been updated.',
     components: [],
