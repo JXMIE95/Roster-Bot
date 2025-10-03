@@ -4,7 +4,7 @@ import { hoursArray } from './time.js';
 export function rosterPanelEmbed() {
   return new EmbedBuilder()
     .setTitle('Buff Givers Roster Panel')
-    .setDescription('Use the controls below to add/remove/edit your rostered hours for any date in the next 7 days. All times are UTC.')
+    .setDescription('Please select a date to add/remove/edit your rostered hours. You can schedule yourself for up to 7 days in advance. All times are UTC.')
     .setColor(0x2b2d31);
 }
 
