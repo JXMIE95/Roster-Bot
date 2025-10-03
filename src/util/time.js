@@ -1,7 +1,9 @@
 import dayjs from 'dayjs';
-import utc from 'dayjs-plugin-utc';
-import tz from 'dayjs-plugin-timezone';
-dayjs.extend(utc); dayjs.extend(tz);
+import utc from 'dayjs/plugin/utc.js';
+import timezone from 'dayjs/plugin/timezone.js';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 export const toUtcDay = (d = dayjs().utc()) => d.utc().format('YYYY-MM-DD');
 export const toHour = (d = dayjs().utc()) => d.utc().hour();
