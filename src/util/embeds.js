@@ -21,7 +21,6 @@ export function rosterPanelComponents(dates) {
       new ButtonBuilder().setCustomId('add_hours').setLabel('Add Hours').setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId('remove_hours').setLabel('Remove Hours').setStyle(ButtonStyle.Danger),
       new ButtonBuilder().setCustomId('edit_hours').setLabel('Edit My Hours').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId('king_confirm').setLabel('King: Confirm In Position').setStyle(ButtonStyle.Secondary)
     )
   ];
 }
