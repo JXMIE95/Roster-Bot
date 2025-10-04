@@ -7,7 +7,13 @@ import {
 import { q } from '../db/pool.js';
 import { nowUtc } from '../util/time.js';
 import { upsertDayMessage } from '../util/dayMessage.js';
-import { rosterPanelComponents, kingAssignmentEmbed, kingAssignmentComponents } from '../util/embeds.js';
+import {
+  rosterPanelComponents,
+  kingAssignmentEmbed,
+  kingAssignmentComponents,
+  buffManagerEmbed,
+  buffManagerComponents
+} from '../util/embeds.js';
 import { hoursArray } from '../util/time.js';
 
 // Helper: next 7 UTC dates as 'YYYY-MM-DD'
@@ -19,7 +25,7 @@ function next7DatesUtc() {
 export default {
   data: {
     name: 'setup',
-    description: 'Create category, week channels, and post roster + king assignment panels'
+    description: 'Create category, control panels, and week date channels'
   },
 
   execute: async (interaction) => {
@@ -47,7 +53,7 @@ export default {
       return interaction.editReply('⚠️ Could not create/find the category.');
     }
 
-    // 2) Create (or reuse) the two control channels under the category
+    // 2) Ensure the three control channels under the category
     async function ensureText(name) {
       let ch = category.children?.cache?.find(c => c.type === ChannelType.GuildText && c.name === name);
       if (!ch) {
@@ -63,21 +69,24 @@ export default {
       return ch;
     }
 
-    const rosterPanelChannel = await ensureText('roster-panel');
+    const rosterPanelChannel    = await ensureText('roster-panel');
     const kingAssignmentChannel = await ensureText('king-assignment');
+    const buffManagerChannel    = await ensureText('buff-givers-manager');
 
-    // Put control channels at the very top of the category
+    // Put control channels at the very top of the category in this order
     try {
       await rosterPanelChannel.setPosition(0).catch(() => {});
       await kingAssignmentChannel.setPosition(1).catch(() => {});
-      // Fallback for some shards: force positions via edit
+      await buffManagerChannel.setPosition(2).catch(() => {});
+      // Fallback via edit (some shards)
       await rosterPanelChannel.edit({ position: 0 }).catch(() => {});
       await kingAssignmentChannel.edit({ position: 1 }).catch(() => {});
+      await buffManagerChannel.edit({ position: 2 }).catch(() => {});
     } catch (e) {
       console.warn('setup: could not pin control channels to top', e);
     }
 
-    // 3) Ensure 7 day channels (named YYYY-MM-DD), delete extras, and upsert each day embed
+    // 3) Ensure 7 date channels named YYYY-MM-DD; delete extras; upsert day embed
     const dates = next7DatesUtc();
     const keepNames = new Set(dates);
 
@@ -86,7 +95,7 @@ export default {
       for (const [, ch] of children.cache) {
         if (
           ch.type === ChannelType.GuildText &&
-          /^\d{4}-\d{2}-\d{2}$/.test(ch.name) &&  // only consider date-named channels
+          /^\d{4}-\d{2}-\d{2}$/.test(ch.name) &&
           !keepNames.has(ch.name)
         ) {
           await ch.delete().catch(() => {});
@@ -103,8 +112,7 @@ export default {
           parent: category.id
         });
       }
-
-      // Build empty slots structure (so message renders even before signups)
+      // Empty slots so message renders even before signups
       const slots = hoursArray().map(h => ({ hour: h, users: [], remaining: 2 }));
       try {
         await upsertDayMessage(interaction.client, guild.id, ch, date, slots);
@@ -115,31 +123,29 @@ export default {
 
     // 4) Post the instructions embed + roster panel in #roster-panel
     const instructions = new EmbedBuilder()
-  .setColor(0x2ecc71)
-  .setTitle('📖 Buff Giver Roster – How it Works')
-  .setDescription(
-    `This bot manages who is on duty as a **Buff Giver** in hourly slots (UTC).\n\n` +
-    `Each slot can have **up to 2 Buff Givers**.\n` +
-    `The **King** is notified when assignees change.\n` +
-    `Buff Givers get a **DM reminder** before their shift.\n\n` +
+      .setColor(0x2ecc71)
+      .setTitle('📖 Buff Giver Roster – How it Works')
+      .setDescription(
+        `This bot manages who is on duty as a **Buff Giver** in hourly slots (UTC).\n\n` +
+        `Each slot can have **up to 2 Buff Givers**.\n` +
+        `The **King** is notified when assignees change.\n` +
+        `Buff Givers get a **DM reminder** before their shift.\n\n` +
+        `**📝 How to Roster Yourself**\n` +
+        `1️⃣ Use the **📅 Date menu** below to pick a day.\n` +
+        `2️⃣ Choose one of the buttons:\n` +
+        `   ✅ **Add Hours** – sign up for shifts\n` +
+        `   ❌ **Remove Hours** – leave a shift\n` +
+        `   ✏️ **Edit My Hours** – adjust your hours\n\n` +
+        `**🔔 Notifications**\n` +
+        `- Buff Givers get a **DM reminder** before their shift.\n` +
+        `- The **King** gets a DM when assignees change.\n` +
+        `- When the King confirms, Buff Givers are DM’d to notify them they’ve been assigned.\n\n` +
+        `**⚔️ Roles**\n` +
+        `When the King confirms you have been assigned the bot will **add the Buff Giver role** ` +
+        `and **remove it** from the person coming off shift.\n\n` +
+        `👉 **Roster your hours, check your DMs, and be ready to give buffs!**`
+      );
 
-    `**📝 How to Roster Yourself**\n` +
-    `1️⃣ Use the **📅 Date menu** below to pick a day.\n` +
-    `2️⃣ Choose one of the buttons:\n` +
-    `   ✅ **Add Hours** – sign up for shifts\n` +
-    `   ❌ **Remove Hours** – leave a shift\n` +
-    `   ✏️ **Edit My Hours** – adjust your hours\n\n` +
-
-    `**🔔 Notifications**\n` +
-    `- Buff Givers get a **DM reminder** before their shift.\n` +
-    `- The **King** gets a DM when assignees change.\n` +
-    `- When the King confirms, Buff Givers are DM’d to notify them they’ve been assigned.\n\n` +
-
-    `**⚔️ Roles**\n` +
-    `When the King confirms you have been assigned the bot will **add the Buff Giver role** and **remove it** from the person coming off shift.\n\n` +
-
-    `👉 **Roster your hours, check your DMs, and be ready to give buffs!**`
-  );
     const panelComponents = rosterPanelComponents(dates);
     const instrMsg = await rosterPanelChannel.send({ embeds: [instructions] }).catch(() => null);
     if (!instrMsg) return interaction.editReply('⚠️ Could not post the instructions embed in #roster-panel.');
@@ -150,15 +156,24 @@ export default {
     // 5) Post the King Assignment panel in #king-assignment
     try {
       const kaEmbed = kingAssignmentEmbed();
-      const kaComponents = kingAssignmentComponents(); // single "Grant King" selector (no revoke)
+      const kaComponents = kingAssignmentComponents(); // one selector (grant/clear)
       await kingAssignmentChannel.send({ embeds: [kaEmbed] });
       await kingAssignmentChannel.send({ components: kaComponents });
     } catch (e) {
       console.error('setup: king assignment panel error', e);
-      // Non-fatal
     }
 
-    // 6) Save roster panel ids (schema only has one set of fields; store the roster-panel there)
+    // 6) Post the Buff Givers Manager panel in #buff-givers-manager
+    try {
+      const bmEmbed = buffManagerEmbed();
+      const bmComponents = buffManagerComponents();
+      await buffManagerChannel.send({ embeds: [bmEmbed] });
+      await buffManagerChannel.send({ components: bmComponents });
+    } catch (e) {
+      console.error('setup: buff manager panel error', e);
+    }
+
+    // 7) Save roster panel ids (stored for refreshes)
     await q(
       `INSERT INTO guild_settings (guild_id, category_id, panel_channel_id, panel_message_id)
        VALUES ($1,$2,$3,$4)
@@ -169,6 +184,6 @@ export default {
       [guild.id, category.id, rosterPanelChannel.id, panelMsg.id]
     );
 
-    await interaction.editReply('✅ Setup complete! Created category, pinned **#roster-panel** and **#king-assignment** above date channels, and posted both panels.');
+    await interaction.editReply('✅ Setup complete! Created category, pinned **#roster-panel**, **#king-assignment**, **#buff-givers-manager**, and generated the next 7 date channels.');
   }
 };
