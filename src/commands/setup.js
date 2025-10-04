@@ -115,39 +115,31 @@ export default {
 
     // 4) Post the instructions embed + roster panel in #roster-panel
     const instructions = new EmbedBuilder()
-      .setColor(0x2ecc71)
-      .setTitle('📖 Buff Giver Roster – How it Works')
-      .setDescription(
-        `This bot manages who is on duty as a **Buff Giver** in hourly slots (UTC).\n` +
-        `- Each slot can have **up to 2 Buff Givers**\n` +
-        `- The **King** is notified when assignees change\n` +
-        `- Buff Givers get a **DM reminder** before their shift`
-      )
-      .addFields(
-        {
-          name: '📝 How to roster yourself',
-          value:
-            `1. Use the **📅 Date menu** below to pick a day\n` +
-            `2. Choose:\n` +
-            `   \n✅ **Add Hours** – select your availability\n` +
-            `   \n❌ **Remove Hours** – leave a shift\n` +
-            `   \n✏️ **Edit My Hours** – adjust your hours\n\n`
-        },
-        {
-          name: '🔔 Notifications',
-          value:
-            `- Buff Givers get a **DM reminder** before their shift\n` +
-            `- The **King** gets a DM when assignees change\n` +
-            `- When the King confirms, Buff Givers are DM’d to notify them they have been assigned\n\n`
-        },
-        {
-          name: '⚔️ Roles',
-          value:
-            `The bot will **add the Buff Giver role** when your shift starts, and **remove it** when your shift ends.`
-        }
-      )
-      .setFooter({ text: '👉 Roster your hours, check your DMs, be ready to give buffs!' });
+  .setColor(0x2ecc71)
+  .setTitle('📖 Buff Giver Roster – How it Works')
+  .setDescription(
+    `This bot manages who is on duty as a **Buff Giver** in hourly slots (UTC).\n\n` +
+    `Each slot can have **up to 2 Buff Givers**.\n` +
+    `The **King** is notified when assignees change.\n` +
+    `Buff Givers get a **DM reminder** before their shift.\n\n` +
 
+    `**📝 How to Roster Yourself**\n` +
+    `1️⃣ Use the **📅 Date menu** below to pick a day.\n` +
+    `2️⃣ Choose one of the buttons:\n` +
+    `   ✅ **Add Hours** – sign up for shifts\n` +
+    `   ❌ **Remove Hours** – leave a shift\n` +
+    `   ✏️ **Edit My Hours** – adjust your hours\n\n` +
+
+    `**🔔 Notifications**\n` +
+    `- Buff Givers get a **DM reminder** before their shift.\n` +
+    `- The **King** gets a DM when assignees change.\n` +
+    `- When the King confirms, Buff Givers are DM’d to notify them they’ve been assigned.\n\n` +
+
+    `**⚔️ Roles**\n` +
+    `When the King confirms you have been assigned the bot will **add the Buff Giver role** and **remove it** from the person coming off shift.\n\n` +
+
+    `👉 **Roster your hours, check your DMs, and be ready to give buffs!**`
+  );
     const panelComponents = rosterPanelComponents(dates);
     const instrMsg = await rosterPanelChannel.send({ embeds: [instructions] }).catch(() => null);
     if (!instrMsg) return interaction.editReply('⚠️ Could not post the instructions embed in #roster-panel.');
