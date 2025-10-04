@@ -57,7 +57,6 @@ export function kingAssignmentEmbed() {
     .setDescription(
       `R5 can assign the **King role** using the selector below.\n` +
       `When you confirm, the bot will **remove the King role from everyone else** and grant it to the selected member(s).\n\n` +
-      `The bot needs **Manage Roles** and its top role **above** the King role.`
     );
 }
 
