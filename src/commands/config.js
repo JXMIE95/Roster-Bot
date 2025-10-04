@@ -111,18 +111,19 @@ export default {
     if (sub === 'show') {
       const { rows } = await q(
         `SELECT king_role_id, buff_role_id, r5_role_id, notify_lead_minutes, king_change_lead_minutes
-         FROM guild_settings WHERE guild_id=$1`,
+           FROM guild_settings
+          WHERE guild_id=$1`,
         [interaction.guildId]
       );
       const g = rows[0] || {};
       return interaction.reply({
         content: [
           `**Current config:**`,
-          `• King role: ${g.king_role_id ? `<@&${g.king_role_id}>` : '—'}`,
-          `• Buff role: ${g.buff_role_id ? `<@&${g.buff_role_id}>` : '—'}`,
-          `• R5 role: ${g.r5_role_id ? `<@&${g.r5_role_id}>` : '—'}`,
-          `• User lead minutes: ${g.notify_lead_minutes ?? 15}`,
-          `• King lead minutes: ${g.king_change_lead_minutes ?? 10}`
+          `- King role: ${g.king_role_id ? `<@&${g.king_role_id}>` : '—'}`,
+          `- Buff role: ${g.buff_role_id ? `<@&${g.buff_role_id}>` : '—'}`,
+          `- R5 role: ${g.r5_role_id ? `<@&${g.r5_role_id}>` : '—'}`,
+          `- User lead minutes: ${g.notify_lead_minutes ?? 15}`,
+          `- King lead minutes: ${g.king_change_lead_minutes ?? 10}`
         ].join('\n'),
         ephemeral: true
       });
