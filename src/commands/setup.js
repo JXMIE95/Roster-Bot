@@ -131,14 +131,14 @@ export default {
             `2. Choose:\n` +
             `   \n✅ **Add Hours** – select your availability\n` +
             `   \n❌ **Remove Hours** – leave a shift\n` +
-            `   \n✏️ **Edit My Hours** – adjust your hours\n`
+            `   \n✏️ **Edit My Hours** – adjust your hours\n\n`
         },
         {
           name: '🔔 Notifications',
           value:
             `- Buff Givers get a **DM reminder** before their shift\n` +
             `- The **King** gets a DM when assignees change\n` +
-            `- When the King confirms, Buff Givers are DM’d to notify them they have been assigned\n`
+            `- When the King confirms, Buff Givers are DM’d to notify them they have been assigned\n\n`
         },
         {
           name: '⚔️ Roles',
