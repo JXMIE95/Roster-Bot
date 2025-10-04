@@ -119,9 +119,9 @@ export default {
       .setTitle('📖 Buff Giver Roster – How it Works')
       .setDescription(
         `This bot manages who is on duty as a **Buff Giver** in hourly slots (UTC).\n` +
-        `• Each slot can have **up to 2 Buff Givers**\n` +
-        `• The **King** is notified when assignees change\n` +
-        `• Buff Givers get a **DM reminder** before their shift`
+        `- Each slot can have **up to 2 Buff Givers**\n` +
+        `- The **King** is notified when assignees change\n` +
+        `- Buff Givers get a **DM reminder** before their shift`
       )
       .addFields(
         {
@@ -131,14 +131,14 @@ export default {
             `2. Choose:\n` +
             `   \n✅ **Add Hours** – select your availability\n` +
             `   \n❌ **Remove Hours** – leave a shift\n` +
-            `   \n✏️ **Edit My Hours** – adjust your hours`
+            `   \n✏️ **Edit My Hours** – adjust your hours\n`
         },
         {
           name: '🔔 Notifications',
           value:
             `- Buff Givers get a **DM reminder** before their shift\n` +
             `- The **King** gets a DM when assignees change\n` +
-            `- When the King confirms, Buff Givers are DM’d to notify them they have been assigned`
+            `- When the King confirms, Buff Givers are DM’d to notify them they have been assigned\n`
         },
         {
           name: '⚔️ Roles',
