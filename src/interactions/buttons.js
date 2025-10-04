@@ -27,12 +27,53 @@ function hourMultiSelect(customId, placeholder, preSelected = []) {
 }
 
 export async function onButton(interaction) {
-  // --- King presses the DM button to notify assignees (sent via DM by tick.js) ---
+  // --- King presses the DM button to notify assignees (ONE-TIME) ---
   if (interaction.customId.startsWith('notify_assignees:')) {
     const [, guildId, dateStr, hourStr] = interaction.customId.split(':');
     const hour = Number.parseInt(hourStr, 10);
 
+    // Helper: disable only the notify button in the original message
+    async function disableNotifyButton() {
+      try {
+        const msg = interaction.message ?? (await interaction.fetchReply().catch(() => null));
+        if (!msg?.components?.length) return;
+
+        const newRows = msg.components.map((row) => {
+          const r = new ActionRowBuilder();
+          row.components.forEach((comp) => {
+            if (comp.type === 2) {
+              const btn = ButtonBuilder.from(comp);
+              if (comp.customId?.startsWith('notify_assignees:')) btn.setDisabled(true);
+              r.addComponents(btn);
+            }
+          });
+          return r;
+        });
+
+        await msg.edit({ components: newRows }).catch(() => {});
+      } catch {
+        // ignore
+      }
+    }
+
     try {
+      // 0) Idempotency check (already used?)
+      const used = await q(
+        `SELECT 1 FROM reminders_sent
+         WHERE guild_id=$1 AND date_utc=$2::date AND hour=$3::int AND kind='king_notify'
+         LIMIT 1`,
+        [guildId, dateStr, hour]
+      );
+      if (used.rowCount) {
+        await disableNotifyButton(); // lock visually if possible
+        await interaction.reply({
+          content: `⚠️ This slot **${dateStr} ${String(hour).padStart(2, '0')}:00 UTC** has already been notified.`,
+          ephemeral: true
+        });
+        return;
+      }
+
+      // 1) Find assignees for the slot
       const { rows: currRows } = await q(
         `SELECT user_id FROM shifts
          WHERE guild_id=$1 AND date_utc=$2::date AND hour=$3::int`,
@@ -40,28 +81,52 @@ export async function onButton(interaction) {
       );
 
       if (!currRows.length) {
+        // Mark as used anyway to prevent spam presses on empty slot
+        await q(
+          `INSERT INTO reminders_sent(guild_id,date_utc,hour,user_id,kind)
+           VALUES ($1,$2,$3,'__king_notify__','king_notify')
+           ON CONFLICT DO NOTHING`,
+          [guildId, dateStr, hour]
+        );
+        await disableNotifyButton();
         await interaction.reply({
-          content: `No assignees found for **${dateStr} ${String(hour).padStart(2, '0')}:00 UTC**.`
+          content: `No assignees found for **${dateStr} ${String(hour).padStart(2, '0')}:00 UTC**.`,
+          ephemeral: true
         });
         return;
       }
 
-      // DM each assignee
+      // 2) DM assignees
       for (const r of currRows) {
         try {
           const user = await interaction.client.users.fetch(r.user_id);
           await user.send(
-            `👑 The King has assigned you for **${dateStr} ${String(hour).padStart(2,'0')}:00 UTC**. Please take position.`
+            `👑 The King has assigned you for **${dateStr} ${String(hour).padStart(2, '0')}:00 UTC**. Please take position.`
           );
-        } catch {}
+        } catch {
+          // ignore DM failures
+        }
       }
 
+      // 3) Record one-time usage
+      await q(
+        `INSERT INTO reminders_sent(guild_id,date_utc,hour,user_id,kind)
+         VALUES ($1,$2,$3,'__king_notify__','king_notify')
+         ON CONFLICT DO NOTHING`,
+        [guildId, dateStr, hour]
+      );
+
+      // 4) Lock the button visually
+      await disableNotifyButton();
+
       await interaction.reply({
-        content: `✅ Notified assignees for **${dateStr} ${String(hour).padStart(2, '0')}:00 UTC**.`
+        content: `✅ Notified assignees for **${dateStr} ${String(hour).padStart(2, '0')}:00 UTC**. (Button locked)`,
+        ephemeral: true
       });
     } catch (e) {
       await interaction.reply({
-        content: `⚠️ Could not notify assignees. (${e.message || 'unknown error'})`
+        content: `⚠️ Could not notify assignees. (${e.message || 'unknown error'})`,
+        ephemeral: true
       });
     }
     return;
@@ -81,7 +146,8 @@ export async function onButton(interaction) {
 
       if (!rows.length) {
         await interaction.reply({
-          content: `No assignees found for **${dateStr} ${String(hour).padStart(2, '0')}:00 UTC**.`
+          content: `No assignees found for **${dateStr} ${String(hour).padStart(2, '0')}:00 UTC**.`,
+          ephemeral: true
         });
         return;
       }
@@ -99,10 +165,11 @@ export async function onButton(interaction) {
       }
 
       const line = names.join(', ');
-      await interaction.reply({ content: line });
+      await interaction.reply({ content: line, ephemeral: true });
     } catch (e) {
       await interaction.reply({
-        content: `⚠️ Could not fetch assignee names. (${e.message || 'unknown error'})`
+        content: `⚠️ Could not fetch assignee names. (${e.message || 'unknown error'})`,
+        ephemeral: true
       });
     }
     return;
@@ -229,7 +296,7 @@ export async function onSelectMenu(interaction) {
     const results = [];
 
     if (grant) {
-      // --- SINGLE-SOURCE OF TRUTH: only the selected users keep the King role ---
+      // SINGLE-SOURCE OF TRUTH: only the selected users keep the King role
       // 1) Remove King role from everyone who currently has it but isn't selected
       const toRemove = [];
       for (const [, m] of kingRole.members) {
@@ -248,7 +315,7 @@ export async function onSelectMenu(interaction) {
       for (const uid of selectedIds) {
         try {
           const m = await interaction.guild.members.fetch(uid);
-        if (!m.roles.cache.has(kingRole.id)) {
+          if (!m.roles.cache.has(kingRole.id)) {
             await m.roles.add(kingRole).catch(() => {});
             results.push(`✅ Granted King to ${m.displayName || m.user.username}`);
           } else {
