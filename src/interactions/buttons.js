@@ -85,18 +85,13 @@ async function refreshDayEmbed(client, guildId, date) {
   await upsertDayMessage(client, guildId, ch, date, slots);
 }
 
-/**
- * If the manager updated the CURRENT UTC hour, immediately sync the live Buff role:
- * - add role to new assignees
- * - remove role from users who just came off this hour
- */
+/** If the manager updated the CURRENT UTC hour, immediately sync the live Buff role. */
 async function syncBuffRoleIfNow(interaction, date, hour, beforeIds) {
   const now = nowUtc();
   const todayStr = now.clone().format('YYYY-MM-DD');
   const curHour = now.hour();
   if (date !== todayStr || hour !== curHour) return;
 
-  // Load buff role
   const { rows: gset } = await q(
     `SELECT buff_role_id FROM guild_settings WHERE guild_id=$1`,
     [interaction.guildId]
@@ -115,7 +110,6 @@ async function syncBuffRoleIfNow(interaction, date, hour, beforeIds) {
     !role.managed;
   if (!canManage) return;
 
-  // after-update assignees
   const { rows: afterRows } = await q(
     `SELECT user_id FROM shifts WHERE guild_id=$1 AND date_utc=$2::date AND hour=$3::int`,
     [interaction.guildId, date, hour]
@@ -123,7 +117,6 @@ async function syncBuffRoleIfNow(interaction, date, hour, beforeIds) {
   const afterIds = new Set(afterRows.map(r => r.user_id));
   const beforeSet = new Set(beforeIds || []);
 
-  // add role to new assignees
   for (const uid of afterIds) {
     try {
       const m = await guild.members.fetch(uid);
@@ -131,7 +124,6 @@ async function syncBuffRoleIfNow(interaction, date, hour, beforeIds) {
     } catch {}
   }
 
-  // remove from those no longer in this slot
   for (const uid of beforeSet) {
     if (!afterIds.has(uid)) {
       try {
@@ -145,7 +137,7 @@ async function syncBuffRoleIfNow(interaction, date, hour, beforeIds) {
 // ----- onButton -------------------------------------------------------------
 
 export async function onButton(interaction) {
-  // --- King presses the DM button to notify assignees (ONE-TIME) ---
+  // Notify assignees (one-time)
   if (interaction.customId.startsWith('notify_assignees:')) {
     const [, guildId, dateStr, hourStr] = interaction.customId.split(':');
     const hour = Number.parseInt(hourStr, 10);
@@ -172,7 +164,6 @@ export async function onButton(interaction) {
     }
 
     try {
-      // one-time idempotency
       const used = await q(
         `SELECT 1 FROM reminders_sent
          WHERE guild_id=$1 AND date_utc=$2::date AND hour=$3::int AND kind='king_notify'
@@ -209,7 +200,6 @@ export async function onButton(interaction) {
         return;
       }
 
-      // DM each assignee
       for (const r of currRows) {
         try {
           const user = await interaction.client.users.fetch(r.user_id);
@@ -219,7 +209,6 @@ export async function onButton(interaction) {
         } catch {}
       }
 
-      // Record one-time usage & lock button
       await q(
         `INSERT INTO reminders_sent(guild_id,date_utc,hour,user_id,kind)
          VALUES ($1,$2,$3,'__king_notify__','king_notify')
@@ -241,7 +230,7 @@ export async function onButton(interaction) {
     return;
   }
 
-  // --- King presses the DM button to copy assignee names (single-line) ---
+  // Copy assignee names (one-line)
   if (interaction.customId.startsWith('list_assignees:')) {
     const [, guildId, dateStr, hourStr] = interaction.customId.split(':');
     const hour = Number.parseInt(hourStr, 10);
@@ -282,9 +271,8 @@ export async function onButton(interaction) {
     return;
   }
 
-  // --- Buff Manager: action buttons -> open user picker (single-hour path) ---
+  // Buff Manager: action buttons -> open user picker (single-hour)
   if (interaction.customId.startsWith('bm_act:')) {
-    // bm_act:<add|remove|replace>:YYYY-MM-DD:HH
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to manage this slot.', ephemeral: true });
       return;
@@ -293,7 +281,6 @@ export async function onButton(interaction) {
     const [, action, date, hourStr] = interaction.customId.split(':');
     const hour = parseInt(hourStr, 10);
 
-    // Read current assignees to size the picker if needed
     const { rows } = await q(
       `SELECT user_id FROM shifts WHERE guild_id=$1 AND date_utc=$2::date AND hour=$3::int`,
       [interaction.guildId, date, hour]
@@ -325,9 +312,8 @@ export async function onButton(interaction) {
     return;
   }
 
-  // --- Buff Manager: action buttons -> open user picker (multi-hour path) ---
+  // Buff Manager: action buttons -> open user picker (multi-hour)
   if (interaction.customId.startsWith('bm_act_multi:')) {
-    // bm_act_multi:<add|remove|replace>:YYYY-MM-DD:h1,h2,h3
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to manage these slots.', ephemeral: true });
       return;
@@ -356,7 +342,7 @@ export async function onButton(interaction) {
     return;
   }
 
-  // --- Ephemeral add/remove/edit flows (date baked into custom id) ---
+  // User self-service ephemeral flows
   if (
     interaction.customId.startsWith('add_hours_ep:') ||
     interaction.customId.startsWith('remove_hours_ep:') ||
@@ -400,7 +386,7 @@ export async function onButton(interaction) {
     return;
   }
 
-  // --- Legacy public buttons: ask them to pick a date first ---
+  // Legacy prompts
   if (
     interaction.customId === 'add_hours' ||
     interaction.customId === 'remove_hours' ||
@@ -415,10 +401,10 @@ export async function onButton(interaction) {
   }
 }
 
-// ----- onSelectMenu (single export) --------------------------------
+// ----- onSelectMenu ---------------------------------------------------------
 
 export async function onSelectMenu(interaction) {
-  // === Buff Manager: initial date pick -> multi-hour select ===
+  // Buff Manager: initial date -> multi-hour select
   if (interaction.customId === 'bm_date') {
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', ephemeral: true });
@@ -426,7 +412,6 @@ export async function onSelectMenu(interaction) {
     }
     const date = interaction.values[0];
 
-    // Multi-hour select for this date
     const hours = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0'));
     const row = new ActionRowBuilder().addComponents(
       new StringSelectMenuBuilder()
@@ -444,14 +429,13 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // === Buff Manager: initial hour pick (single-hour path) -> date select ===
+  // Buff Manager: hour -> date (single-hour path)
   if (interaction.customId === 'bm_hour') {
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', ephemeral: true });
       return;
     }
     const hour = parseInt(interaction.values[0], 10);
-    // Ask for date (with hour baked into customId)
     const dates = next7DatesUtc();
     const row = new ActionRowBuilder().addComponents(
       new StringSelectMenuBuilder()
@@ -469,7 +453,7 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // === Buff Manager: date -> single-hour (old path) ===
+  // Buff Manager: date -> single-hour action buttons
   if (interaction.customId.startsWith('bm2_hour:')) {
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', ephemeral: true });
@@ -492,7 +476,7 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // === Buff Manager: hour -> date (old path) ===
+  // Buff Manager: hour -> date action buttons
   if (interaction.customId.startsWith('bm2_date:')) {
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', ephemeral: true });
@@ -515,7 +499,7 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // === Buff Manager: date -> MULTI-HOURS (new path) -> action buttons ===
+  // Buff Manager: date -> MULTI-HOURS action buttons
   if (interaction.customId.startsWith('bm2_hours:')) {
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', ephemeral: true });
@@ -539,20 +523,18 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // === Buff Manager: user picker results (single-hour path) ===
+  // Buff Manager results (single-hour)
   if (interaction.customId.startsWith('bm_pick:')) {
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', ephemeral: true });
       return;
     }
-    // bm_pick:<add|remove|replace>:YYYY-MM-DD:HH
     const [, action, date, hourStr] = interaction.customId.split(':');
     const hour = parseInt(hourStr, 10);
     const guildId = interaction.guildId;
-    const userIds = interaction.values; // selected users
+    const userIds = interaction.values;
 
     try {
-      // BEFORE: current assignees
       const { rows } = await q(
         `SELECT user_id FROM shifts WHERE guild_id=$1 AND date_utc=$2::date AND hour=$3::int`,
         [guildId, date, hour]
@@ -595,8 +577,6 @@ export async function onSelectMenu(interaction) {
       }
 
       await refreshDayEmbed(interaction.client, guildId, date);
-
-      // NEW: if this is the current UTC hour, sync the live Buff role
       await syncBuffRoleIfNow(interaction, date, hour, current);
 
       await interaction.reply({
@@ -612,13 +592,12 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // === Buff Manager: user picker results (MULTI-HOUR path) ===
+  // Buff Manager results (multi-hour)
   if (interaction.customId.startsWith('bm_pick_multi:')) {
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', ephemeral: true });
       return;
     }
-    // bm_pick_multi:<add|remove|replace>:YYYY-MM-DD:h1,h2,h3
     const [, action, date, hoursCsv] = interaction.customId.split(':');
     const hours = hoursCsv.split(',').map(h => parseInt(h, 10)).filter(Number.isInteger);
     const guildId = interaction.guildId;
@@ -626,7 +605,6 @@ export async function onSelectMenu(interaction) {
 
     try {
       for (const hour of hours) {
-        // BEFORE: per-hour assignees
         const { rows } = await q(
           `SELECT user_id FROM shifts WHERE guild_id=$1 AND date_utc=$2::date AND hour=$3::int`,
           [guildId, date, hour]
@@ -668,7 +646,7 @@ export async function onSelectMenu(interaction) {
           }
         }
 
-        // If this is the current hour, sync live role for this hour right away
+        // live role sync if this hour is now
         await syncBuffRoleIfNow(interaction, date, hour, current);
       }
 
@@ -687,13 +665,7 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // --- R5/King/Admin King Assignment user select (grant OR revoke) ---
-  if (interaction.customId === 'king_grant' || interaction.customId === 'king_revoke')) {
-    // (unchanged — your existing King role handler can stay here if you prefer it in onButton;
-    // if you moved it to the other onSelectMenu below, remove this block to avoid duplicates)
-  }
-
-  // --- Roster panel: public date dropdown -> private mini-panel
+  // Roster panel: public date dropdown -> private mini-panel
   if (interaction.customId === 'date_select') {
     const date = interaction.values[0];
 
@@ -720,7 +692,7 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // --- User self-service add/remove/edit submit (with 2+ consecutive rule) ---
+  // User self-service submit (2+ consecutive rule)
   const [action, date] = interaction.customId.split(':');
   if (!['add_hours_submit', 'remove_hours_submit', 'edit_hours_submit'].includes(action)) return;
 
