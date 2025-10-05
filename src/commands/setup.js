@@ -99,7 +99,7 @@ export default {
 This bot helps organize who’s on duty for buffs each hour, who’s King, and when reminders go out.
 
 ## 🧙‍♂️ Buff Givers – How to Sign Up
-Go to the **#roster-panel** channel.
+Go to the **#〡✍🏻〡shift-sign-up-panel** channel.
 
 **Step 1:** Use the dropdown menu to select a date (up to 7 days ahead).  
 **Step 2:** Choose an action:
@@ -118,26 +118,22 @@ The bot will confirm your selection privately.
 Make sure your **DMs are open** so you don’t miss reminders.
 
 ## 👑 King – Managing the Roster
-Go to **#king-assignment**.
 
-Only the **King**, **R5**, or **Admin** can assign or change the King role.  
+Only **R5** or **Admins** can assign or change the King role.  
 When Buff Givers change, the King receives a DM.
 
 In that DM, the King can:
 - Press **Notify Assignees** to DM Buff Givers (once per slot)  
 - Press **List Assignees** to copy who’s on duty
 
+The King can also manually edit the buff givers roster and assign buff givers roles using **〡👨🏻‍💻〡buff-givers-management-panel**
+
 ## 🎖️ R5 – Role & Permissions
-Members with the **R5 role** can:
-- Assign or remove the King in #king-assignment  
-- Manage roster schedules
+
+**R5's** can:
+- Assign or remove the King in **〡👑〡king-assignment**.  
 
 They do **not** need Manage Roles permission.
-
-## ⚔️ Role Overview
-**King:** Main buff coordinator  
-**Buff Giver:** Automatically assigned at shift start  
-**R5:** Trusted leaders who manage assignments
 
 ## 🔔 Reminders
 - Buff Givers get DM reminders.  
