@@ -93,6 +93,7 @@ export async function onButton(interaction) {
     const [, guildId, dateStr, hourStr] = interaction.customId.split(':');
     const hour = Number.parseInt(hourStr, 10);
 
+    // Helper: disable only the notify button in the original message
     async function disableNotifyButton() {
       try {
         const msg = interaction.message ?? (await interaction.fetchReply().catch(() => null));
@@ -152,6 +153,7 @@ export async function onButton(interaction) {
         return;
       }
 
+      // DM each assignee
       for (const r of currRows) {
         try {
           const user = await interaction.client.users.fetch(r.user_id);
@@ -161,6 +163,7 @@ export async function onButton(interaction) {
         } catch {}
       }
 
+      // Record one-time usage & lock button
       await q(
         `INSERT INTO reminders_sent(guild_id,date_utc,hour,user_id,kind)
          VALUES ($1,$2,$3,'__king_notify__','king_notify')
@@ -250,7 +253,7 @@ export async function onButton(interaction) {
           action === 'remove' ? 'Pick user(s) to REMOVE from this slot' :
                                 'Pick up to 2 user(s) to REPLACE this slot'
         )
-        .setMinValues( action === 'remove' ? 1 : 1 )
+        .setMinValues(1)
         .setMaxValues(
           action === 'add'    ? Math.max(1, remaining) :
           action === 'remove' ? Math.max(1, current.length || 1) :
@@ -325,7 +328,7 @@ export async function onButton(interaction) {
   }
 }
 
-// ----- onSelectMenu ---------------------------------------------------------
+// ----- onSelectMenu (merged, single export!) --------------------------------
 
 export async function onSelectMenu(interaction) {
   // === Buff Manager: initial date/hour picks from the manager channel ===
@@ -335,7 +338,7 @@ export async function onSelectMenu(interaction) {
       return;
     }
     const date = interaction.values[0];
-    // continue flow: ask for hour (with date baked into customId)
+    // Ask for hour (with date baked into customId)
     const hours = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0'));
     const row = new ActionRowBuilder().addComponents(
       new StringSelectMenuBuilder()
@@ -359,7 +362,7 @@ export async function onSelectMenu(interaction) {
       return;
     }
     const hour = parseInt(interaction.values[0], 10);
-    // continue flow: ask for date (with hour baked into customId)
+    // Ask for date (with hour baked into customId)
     const dates = next7DatesUtc();
     const row = new ActionRowBuilder().addComponents(
       new StringSelectMenuBuilder()
@@ -462,7 +465,6 @@ export async function onSelectMenu(interaction) {
         let added = 0;
         for (const uid of userIds) {
           if (added >= remaining) break;
-          // skip if already in
           if (current.includes(uid)) continue;
           await q(
             `INSERT INTO shifts(guild_id,date_utc,hour,user_id,created_by)
@@ -480,7 +482,6 @@ export async function onSelectMenu(interaction) {
         }
       }
 
-      // refresh the day embed
       await refreshDayEmbed(interaction.client, guildId, date);
 
       await interaction.reply({
@@ -496,15 +497,7 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // === King Assignment (user select lives here too in onSelectMenu) handled below ===
-
-  // --- Public date dropdown handled below; other branches return above ---
-}
-
-// ----- remaining select handlers (roster + king assignment + add/edit/remove) -----
-
-export async function onSelectMenu(interaction) {
-  // --- R5/King/Admin King Assignment user select (grant OR revoke branch preserved) ---
+  // --- R5/King/Admin King Assignment user select (grant OR revoke) ---
   if (interaction.customId === 'king_grant' || interaction.customId === 'king_revoke') {
     const guildId = interaction.guildId;
 
@@ -690,6 +683,6 @@ export async function onSelectMenu(interaction) {
 
   await interaction.update({
     content: '✅ Saved! Your roster has been updated.',
-    components: [],
+  components: [],
   });
 }
