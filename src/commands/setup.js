@@ -70,10 +70,10 @@ export default {
     }
 
     // Create top-level control channels
-    const userGuideChannel       = await ensureText('user-guide');
-    const rosterPanelChannel     = await ensureText('roster-panel');
-    const kingAssignmentChannel  = await ensureText('king-assignment');
-    const buffManagerChannel     = await ensureText('buff-givers-manager');
+    const userGuideChannel       = await ensureText('〡👨🏻‍🦯〡user-guide');
+    const rosterPanelChannel     = await ensureText('〡✍🏻〡shift-sign-up-panel');
+    const kingAssignmentChannel  = await ensureText('〡👑〡king-assignment');
+    const buffManagerChannel     = await ensureText('〡👨🏻‍💻〡buff-givers-management-panel');
 
     // Put control channels at the top in correct order
     try {
