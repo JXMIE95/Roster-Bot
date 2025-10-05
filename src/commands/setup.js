@@ -34,7 +34,7 @@ export default {
 
     // 1) Create or reuse the "Buff Givers Roster" category
     let category;
-    const categoryName = 'Buff Givers Roster';
+    const categoryName = '〡🗓️〡Buff Givers Roster';
     try {
       category = guild.channels.cache.find(
         c => c.type === ChannelType.GuildCategory && c.name === categoryName
