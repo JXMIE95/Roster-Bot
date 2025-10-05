@@ -7,6 +7,13 @@ import {
   StringSelectMenuBuilder,
   UserSelectMenuBuilder
 } from 'discord.js';
+import { nowUtc } from './time.js';
+
+// ========== helpers ==========
+function next7DatesUtc() {
+  const base = nowUtc().startOf('day');
+  return Array.from({ length: 7 }, (_, i) => base.clone().add(i, 'day').format('YYYY-MM-DD'));
+}
 
 // ========== 📅 ROSTER PANEL ==========
 export function rosterPanelEmbed() {
@@ -93,28 +100,32 @@ export function buffManagerEmbed() {
     .setColor(0x00b894)
     .setTitle('🛡️ Buff Givers Manager')
     .setDescription(
-      'Kings, R5, or Admins can use this panel to **manually assign or remove** the **Buff Giver** role.\n\n' +
-      '• **Assign Buff Giver:** choose member(s) to give the Buff role\n' +
-      '• **Remove Buff Giver:** choose member(s) to remove the Buff role\n\n' +
-      'The bot must have **Manage Roles** and its highest role **above the Buff Giver role** to function.'
+      'Pick a **date** and an **hour** to manage that slot.\n\n' +
+      'You can then **Add**, **Remove**, or **Replace** the assignees for that hour (max 2 per slot).\n\n' +
+      'Only **King**, **R5**, or **Admins** can use this panel.'
     );
 }
 
 export function buffManagerComponents() {
+  const dates = next7DatesUtc();
+  const hours = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0'));
+
   return [
     new ActionRowBuilder().addComponents(
-      new UserSelectMenuBuilder()
-        .setCustomId('buff_grant')
-        .setPlaceholder('Select member(s) to ASSIGN Buff Giver role')
+      new StringSelectMenuBuilder()
+        .setCustomId('bm_date')
+        .setPlaceholder('📅 Select date (next 7 days)')
         .setMinValues(1)
-        .setMaxValues(10)
+        .setMaxValues(1)
+        .addOptions(dates.map(d => ({ label: d, value: d })))
     ),
     new ActionRowBuilder().addComponents(
-      new UserSelectMenuBuilder()
-        .setCustomId('buff_revoke')
-        .setPlaceholder('Select member(s) to REMOVE Buff Giver role')
+      new StringSelectMenuBuilder()
+        .setCustomId('bm_hour')
+        .setPlaceholder('🕑 Select hour (UTC)')
         .setMinValues(1)
-        .setMaxValues(10)
+        .setMaxValues(1)
+        .addOptions(hours.map(h => ({ label: `${h}:00`, value: String(Number(h)) })))
     )
   ];
 }
