@@ -299,23 +299,31 @@ They do **not** need Manage Roles.
         });
       }
 
-      // Build slots from DB so we KEEP existing rostered users
-      try {
+              // ⟵ Build slots from DB so we KEEP existing rostered users + show King unavailability
         const { rows } = await q(
           `SELECT hour, user_id FROM shifts WHERE guild_id=$1 AND date_utc=$2 ORDER BY hour`,
           [guild.id, date]
         );
-
+        
+        // fetch king-unavailable hours
+        const { rows: unavailRows } = await q(
+          `SELECT hour FROM king_unavailable WHERE guild_id=$1 AND date_utc=$2`,
+          [guild.id, date]
+        ).catch(() => ({ rows: [] }));
+        
+        const lockedHours = new Set(unavailRows.map(r => r.hour));
+        
         const by = new Map();
         rows.forEach((r) => {
           if (!by.has(r.hour)) by.set(r.hour, []);
           by.get(r.hour).push(r.user_id);
         });
-
+        
         const slots = Array.from({ length: 24 }, (_, h) => ({
           hour: h,
           users: (by.get(h) || []).map((uid) => ({ id: uid })),
           remaining: Math.max(0, 2 - (by.get(h)?.length || 0)),
+          locked: lockedHours.has(h) // 👈 add the flag
         }));
 
         await upsertDayMessage(interaction.client, guild.id, ch, date, slots);
