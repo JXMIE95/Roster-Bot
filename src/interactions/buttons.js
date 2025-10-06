@@ -136,6 +136,34 @@ async function syncBuffRoleIfNow(interaction, date, hour, beforeIds) {
   }
 }
 
+/* ---------- King Unavailable (Blackout) helpers ---------- */
+
+async function isKingUnavailable(guildId, date, hour) {
+  const { rows } = await q(
+    `SELECT 1 FROM king_unavailable WHERE guild_id=$1 AND date_utc=$2 AND hour=$3 LIMIT 1`,
+    [guildId, date, hour]
+  );
+  return rows.length > 0;
+}
+
+async function setKingUnavailable(guildId, date, hours) {
+  for (const h of hours) {
+    await q(
+      `INSERT INTO king_unavailable(guild_id,date_utc,hour)
+       VALUES ($1,$2,$3)
+       ON CONFLICT DO NOTHING`,
+      [guildId, date, h]
+    );
+  }
+}
+
+async function clearKingUnavailable(guildId, date, hours) {
+  await q(
+    `DELETE FROM king_unavailable WHERE guild_id=$1 AND date_utc=$2 AND hour = ANY($3::int[])`,
+    [guildId, date, hours]
+  );
+}
+
 // ----- onButton (ONLY handles button interactions) --------------------------
 
 export async function onButton(interaction) {
@@ -344,6 +372,42 @@ export async function onButton(interaction) {
     return;
   }
 
+  /* ---------- King Unavailable BUTTON actions ---------- */
+
+  // Mark hours as unavailable
+  if (interaction.customId.startsWith('kb_set_unavailable:')) {
+    if (!(await requireManagerPermission(interaction))) {
+      await interaction.reply({ content: '❌ You are not allowed to modify King availability.', flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const [, date, hoursCsv] = interaction.customId.split(':');
+    const hours = hoursCsv.split(',').map(h => parseInt(h, 10)).filter(Number.isInteger);
+
+    await setKingUnavailable(interaction.guildId, date, hours);
+    await interaction.reply({
+      content: `⛔ Marked **${date}** hours **${hours.map(h=>String(h).padStart(2,'0')).join(', ')}:00 UTC** as **King Unavailable**.`,
+      flags: MessageFlags.Ephemeral
+    });
+    return;
+  }
+
+  // Clear hours from unavailable
+  if (interaction.customId.startsWith('kb_clear_unavailable:')) {
+    if (!(await requireManagerPermission(interaction))) {
+      await interaction.reply({ content: '❌ You are not allowed to modify King availability.', flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const [, date, hoursCsv] = interaction.customId.split(':');
+    const hours = hoursCsv.split(',').map(h => parseInt(h, 10)).filter(Number.isInteger);
+
+    await clearKingUnavailable(interaction.guildId, date, hours);
+    await interaction.reply({
+      content: `✅ Cleared **King Unavailable** for **${date}** hours **${hours.map(h=>String(h).padStart(2,'0')).join(', ')}:00 UTC**.`,
+      flags: MessageFlags.Ephemeral
+    });
+    return;
+  }
+
   // User self-service: open the hour pickers via buttons (these are BUTTONS; submits handled in onSelectMenu)
   if (
     interaction.customId.startsWith('add_hours_ep:') ||
@@ -433,7 +497,7 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // User self-service submit (StringSelect) — with 2+ consecutive rule
+  // User self-service submit (StringSelect) — with 2+ consecutive rule + blackout checks
   if (['add_hours_submit', 'remove_hours_submit', 'edit_hours_submit'].some(p => interaction.customId.startsWith(p))) {
     const [action, date] = interaction.customId.split(':');
     const hours = interaction.values.map(v => parseInt(v, 10)).sort((a, b) => a - b);
@@ -473,6 +537,15 @@ export async function onSelectMenu(interaction) {
 
     if (action !== 'remove_hours_submit') {
       for (const h of hours) {
+        // ⛔ Block user signup if King is unavailable
+        if (await isKingUnavailable(guildId, date, h)) {
+          await interaction.reply({
+            content: `⛔ You cannot sign up for **${date} ${String(h).padStart(2,'0')}:00 UTC** because the King is marked **Unavailable**.`,
+            flags: MessageFlags.Ephemeral
+          });
+          return;
+        }
+
         const { rows } = await q(
           `SELECT COUNT(*)::int AS c FROM shifts WHERE guild_id=$1 AND date_utc=$2 AND hour=$3`,
           [guildId, date, h]
@@ -489,7 +562,6 @@ export async function onSelectMenu(interaction) {
 
     await refreshDayEmbed(interaction.client, guildId, date);
 
-    // keep the ephemeral flow clean
     await interaction.update({
       content: '✅ Saved! Your roster has been updated.',
       components: [],
@@ -610,6 +682,57 @@ export async function onSelectMenu(interaction) {
 
     await interaction.reply({
       content: `📌 Managing **${date}** hours **${hours.map(h=>String(h).padStart(2,'0')).join(', ')}:00 UTC**. Choose an action:`,
+      components: [row],
+      flags: MessageFlags.Ephemeral
+    });
+    return;
+  }
+
+  /* ---------- King Unavailable SELECT flows ---------- */
+
+  // Pick a date to set King Unavailable
+  if (interaction.customId === 'kb_date') {
+    if (!(await requireManagerPermission(interaction))) {
+      await interaction.reply({ content: '❌ You are not allowed to mark King availability.', flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const date = interaction.values[0];
+    const hours = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0'));
+
+    const row = new ActionRowBuilder().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId(`kb_hours:${date}`)
+        .setPlaceholder(`🕑 Select one or more hours for ${date} (UTC)`)
+        .setMinValues(1)
+        .setMaxValues(24)
+        .addOptions(hours.map(h => ({ label: `${h}:00`, value: String(parseInt(h,10)) })))
+    );
+
+    await interaction.reply({
+      content: `📅 Select the hours to **mark unavailable** for **${date} (UTC)**:`,
+      components: [row],
+      flags: MessageFlags.Ephemeral
+    });
+    return;
+  }
+
+  // After choosing hours -> show Mark/Clear buttons
+  if (interaction.customId.startsWith('kb_hours:')) {
+    if (!(await requireManagerPermission(interaction))) {
+      await interaction.reply({ content: '❌ You are not allowed to modify King availability.', flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const date = interaction.customId.split(':')[1];
+    const hours = interaction.values.map(v => parseInt(v, 10)).sort((a,b)=>a-b);
+    const hoursCsv = hours.join(',');
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`kb_set_unavailable:${date}:${hoursCsv}`).setLabel('Mark Unavailable').setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId(`kb_clear_unavailable:${date}:${hoursCsv}`).setLabel('Clear Unavailable').setStyle(ButtonStyle.Success)
+    );
+
+    await interaction.reply({
+      content: `📌 **${date}** — hours **${hours.map(h=>String(h).padStart(2,'0')).join(', ')}:00 UTC**. Choose an action:`,
       components: [row],
       flags: MessageFlags.Ephemeral
     });
