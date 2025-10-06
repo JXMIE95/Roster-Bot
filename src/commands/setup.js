@@ -265,75 +265,81 @@ They do **not** need Manage Roles.
     }
 
     // 9) For each of the next 7 days, ensure text channel and upsert the day message
-    //    ⟶ PRESERVE existing assignments by reading from DB first.
-    for (const date of dates) {
-      let ch = category.children?.cache?.find(c => c.name === date);
-      if (!ch) {
-        ch = await guild.channels.create({
-          name: date,
-          type: ChannelType.GuildText,
-          parent: category.id,
-          permissionOverwrites: [
-            {
-              id: guild.roles.everyone.id,
-              allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
-              deny: [
-                PermissionFlagsBits.SendMessages,
-                PermissionFlagsBits.AddReactions,
-                PermissionFlagsBits.CreatePublicThreads,
-                PermissionFlagsBits.CreatePrivateThreads,
-                PermissionFlagsBits.SendMessagesInThreads
-              ]
-            },
-            {
-              id: botId,
-              allow: [
-                PermissionFlagsBits.ViewChannel,
-                PermissionFlagsBits.ReadMessageHistory,
-                PermissionFlagsBits.SendMessages,
-                PermissionFlagsBits.EmbedLinks,
-                PermissionFlagsBits.ManageMessages
-              ]
-            }
+for (const date of dates) {
+  let ch = category.children?.cache?.find(c => c.name === date);
+  if (!ch) {
+    ch = await guild.channels.create({
+      name: date,
+      type: ChannelType.GuildText,
+      parent: category.id,
+      permissionOverwrites: [
+        {
+          id: guild.roles.everyone.id,
+          allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
+          deny: [
+            PermissionFlagsBits.SendMessages,
+            PermissionFlagsBits.AddReactions,
+            PermissionFlagsBits.CreatePublicThreads,
+            PermissionFlagsBits.CreatePrivateThreads,
+            PermissionFlagsBits.SendMessagesInThreads
           ]
-        });
-      }
+        },
+        {
+          id: botId,
+          allow: [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.ReadMessageHistory,
+            PermissionFlagsBits.SendMessages,
+            PermissionFlagsBits.EmbedLinks,
+            PermissionFlagsBits.ManageMessages
+          ]
+        }
+      ]
+    });
+  }
 
-              // ⟵ Build slots from DB so we KEEP existing rostered users + show King unavailability
-        const { rows } = await q(
-          `SELECT hour, user_id FROM shifts WHERE guild_id=$1 AND date_utc=$2 ORDER BY hour`,
-          [guild.id, date]
-        );
-        
-        // fetch king-unavailable hours
-        const { rows: unavailRows } = await q(
-          `SELECT hour FROM king_unavailable WHERE guild_id=$1 AND date_utc=$2`,
-          [guild.id, date]
-        ).catch(() => ({ rows: [] }));
-        
-        const lockedHours = new Set(unavailRows.map(r => r.hour));
-        
-        const by = new Map();
-        rows.forEach((r) => {
-          if (!by.has(r.hour)) by.set(r.hour, []);
-          by.get(r.hour).push(r.user_id);
-        });
-        
-        const slots = Array.from({ length: 24 }, (_, h) => ({
-          hour: h,
-          users: (by.get(h) || []).map((uid) => ({ id: uid })),
-          remaining: Math.max(0, 2 - (by.get(h)?.length || 0)),
-          locked: lockedHours.has(h) // 👈 add the flag
-        }));
+  try {
+    // pull current assignees
+    const { rows } = await q(
+      `SELECT hour, user_id
+         FROM shifts
+        WHERE guild_id=$1 AND date_utc=$2
+        ORDER BY hour`,
+      [guild.id, date]
+    );
 
-        await upsertDayMessage(interaction.client, guild.id, ch, date, slots);
-      } catch (e) {
-        console.error('setup: upsertDayMessage error', e);
-        // fallback to empty if DB query failed
-        const slotsFallback = hoursArray().map(h => ({ hour: h, users: [], remaining: 2 }));
-        await upsertDayMessage(interaction.client, guild.id, ch, date, slotsFallback).catch(() => {});
-      }
-    }
+    // pull king-unavailable hours (rename to your actual table if different)
+    const { rows: unavailRows } = await q(
+      `SELECT hour
+         FROM king_unavailable
+        WHERE guild_id=$1 AND date_utc=$2`,
+      [guild.id, date]
+    ).catch(() => ({ rows: [] }));
+
+    const lockedHours = new Set(unavailRows.map(r => r.hour));
+
+    const by = new Map();
+    rows.forEach((r) => {
+      if (!by.has(r.hour)) by.set(r.hour, []);
+      by.get(r.hour).push(r.user_id);
+    });
+
+    const slots = Array.from({ length: 24 }, (_, h) => ({
+      hour: h,
+      users: (by.get(h) || []).map((uid) => ({ id: uid })),
+      remaining: Math.max(0, 2 - (by.get(h)?.length || 0)),
+      locked: lockedHours.has(h)
+    }));
+
+    await upsertDayMessage(interaction.client, guild.id, ch, date, slots);
+  } catch (e) {
+    console.error('setup: upsertDayMessage error', e);
+    const slotsFallback = hoursArray().map(h => ({ hour: h, users: [], remaining: 2, locked: false }));
+    try {
+      await upsertDayMessage(interaction.client, guild.id, ch, date, slotsFallback);
+    } catch {}
+  }
+}
 
     // 10) Save roster panel ids (we store the roster-panel message ids)
     await q(
