@@ -22,6 +22,36 @@ function next7DatesUtc() {
   return Array.from({ length: 7 }, (_, i) => base.clone().add(i, 'day').format('YYYY-MM-DD'));
 }
 
+// Purge all messages from a channel (best-effort)
+// Uses bulkDelete in batches; silently ignores older messages where needed.
+async function purgeChannelMessages(channel) {
+  try {
+    // Loop until nothing left to bulk delete (Discord only allows <14d)
+    // We still try once to fetch/delete individually for any leftovers
+    let fetched;
+    do {
+      fetched = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+      if (!fetched || fetched.size === 0) break;
+
+      // Try bulk delete (filterOld = true ignores >14d)
+      const bulkable = fetched;
+      if (bulkable.size > 0) {
+        await channel.bulkDelete(bulkable, true).catch(() => {});
+      }
+
+      // Try to delete anything that may be left individually (older than 14d)
+      const stillThere = await channel.messages.fetch({ limit: 10 }).catch(() => null);
+      if (stillThere && stillThere.size) {
+        for (const [, m] of stillThere) {
+          await m.delete().catch(() => {});
+        }
+      }
+    } while (fetched && fetched.size >= 2); // break once it quiets down
+  } catch {
+    // ignore purge errors
+  }
+}
+
 export default {
   data: {
     name: 'setup',
@@ -31,6 +61,7 @@ export default {
   execute: async (interaction) => {
     await interaction.deferReply({ ephemeral: true });
     const guild = interaction.guild;
+    const botId = interaction.client.user.id;
 
     // 1) Create or reuse the "Buff Givers Roster" category
     let category;
@@ -53,7 +84,7 @@ export default {
       return interaction.editReply('⚠️ Could not create/find the category.');
     }
 
-    // 2) Helper to create channels under the category
+    // 2) Helper to create read-only text channels under the category
     async function ensureText(name) {
       let ch = category.children?.cache?.find(c => c.type === ChannelType.GuildText && c.name === name);
       if (!ch) {
@@ -62,7 +93,29 @@ export default {
           type: ChannelType.GuildText,
           parent: category.id,
           permissionOverwrites: [
-            { id: guild.roles.everyone.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
+            // Everyone can read, but cannot post/react
+            {
+              id: guild.roles.everyone.id,
+              allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
+              deny: [
+                PermissionFlagsBits.SendMessages,
+                PermissionFlagsBits.AddReactions,
+                PermissionFlagsBits.CreatePublicThreads,
+                PermissionFlagsBits.CreatePrivateThreads,
+                PermissionFlagsBits.SendMessagesInThreads
+              ]
+            },
+            // Bot can post/manage
+            {
+              id: botId,
+              allow: [
+                PermissionFlagsBits.ViewChannel,
+                PermissionFlagsBits.ReadMessageHistory,
+                PermissionFlagsBits.SendMessages,
+                PermissionFlagsBits.EmbedLinks,
+                PermissionFlagsBits.ManageMessages
+              ]
+            }
           ]
         });
       }
@@ -90,7 +143,13 @@ export default {
       console.warn('setup: could not pin control channels to top', e);
     }
 
-    // 3) Post the User Guide embed in #user-guide
+    // 3) Purge existing messages in control channels (fresh repost each /setup)
+    await purgeChannelMessages(userGuideChannel);
+    await purgeChannelMessages(rosterPanelChannel);
+    await purgeChannelMessages(kingAssignmentChannel);
+    await purgeChannelMessages(buffManagerChannel);
+
+    // 4) Post the User Guide embed in #user-guide
     const guideEmbed = new EmbedBuilder()
       .setColor(0x3498db)
       .setTitle('💫 Buff Giver Roster – User Guide')
@@ -154,7 +213,8 @@ They do **not** need Manage Roles permission.
       console.error('setup: user guide embed error', e);
     }
 
-    // 4) Ensure 7 date channels under the category (named YYYY-MM-DD)
+    // 5) Ensure 7 date channels under the category (named YYYY-MM-DD).
+    //    Delete old date channels outside the 7-day window.
     const dates = next7DatesUtc();
     const keepNames = new Set(dates);
     try {
@@ -166,25 +226,7 @@ They do **not** need Manage Roles permission.
       }
     } catch {}
 
-    for (const date of dates) {
-      let ch = category.children?.cache?.find(c => c.name === date);
-      if (!ch) {
-        ch = await guild.channels.create({
-          name: date,
-          type: ChannelType.GuildText,
-          parent: category.id
-        });
-      }
-
-      const slots = hoursArray().map(h => ({ hour: h, users: [], remaining: 2 }));
-      try {
-        await upsertDayMessage(interaction.client, guild.id, ch, date, slots);
-      } catch (e) {
-        console.error('setup: upsertDayMessage error', e);
-      }
-    }
-
-    // 5) Post roster panel in #roster-panel
+    // 6) Post roster panel in #shift-sign-up-panel (fresh each time)
     const instructions = new EmbedBuilder()
       .setColor(0x2ecc71)
       .setTitle('📖 Buff Giver Roster – How It Works')
@@ -199,7 +241,7 @@ They do **not** need Manage Roles permission.
     await rosterPanelChannel.send({ embeds: [instructions] });
     const panelMsg = await rosterPanelChannel.send({ components: panelComponents });
 
-    // 6) Post the King Assignment panel in #king-assignment
+    // 7) Post the King Assignment panel in #king-assignment
     try {
       await kingAssignmentChannel.send({ embeds: [kingAssignmentEmbed()] });
       await kingAssignmentChannel.send({ components: kingAssignmentComponents() });
@@ -207,7 +249,7 @@ They do **not** need Manage Roles permission.
       console.error('setup: king assignment panel error', e);
     }
 
-    // 7) Post the Buff Givers Manager panel in #buff-givers-manager
+    // 8) Post the Buff Givers Manager panel in #buff-givers-management-panel
     try {
       await buffManagerChannel.send({ embeds: [buffManagerEmbed()] });
       await buffManagerChannel.send({ components: buffManagerComponents() });
@@ -215,7 +257,70 @@ They do **not** need Manage Roles permission.
       console.error('setup: buff manager panel error', e);
     }
 
-    // 8) Save roster panel ids (we store the roster-panel message ids)
+    // 9) For each of the next 7 days, ensure text channel and upsert the day message
+    //    ⟶ PRESERVE existing assignments by reading from DB first.
+    for (const date of dates) {
+      let ch = category.children?.cache?.find(c => c.name === date);
+      if (!ch) {
+        ch = await guild.channels.create({
+          name: date,
+          type: ChannelType.GuildText,
+          parent: category.id,
+          permissionOverwrites: [
+            {
+              id: guild.roles.everyone.id,
+              allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
+              deny: [
+                PermissionFlagsBits.SendMessages,
+                PermissionFlagsBits.AddReactions,
+                PermissionFlagsBits.CreatePublicThreads,
+                PermissionFlagsBits.CreatePrivateThreads,
+                PermissionFlagsBits.SendMessagesInThreads
+              ]
+            },
+            {
+              id: botId,
+              allow: [
+                PermissionFlagsBits.ViewChannel,
+                PermissionFlagsBits.ReadMessageHistory,
+                PermissionFlagsBits.SendMessages,
+                PermissionFlagsBits.EmbedLinks,
+                PermissionFlagsBits.ManageMessages
+              ]
+            }
+          ]
+        });
+      }
+
+      // ⟵ Build slots from DB so we KEEP existing rostered users
+      try {
+        const { rows } = await q(
+          `SELECT hour, user_id FROM shifts WHERE guild_id=$1 AND date_utc=$2 ORDER BY hour`,
+          [guild.id, date]
+        );
+
+        const by = new Map();
+        rows.forEach((r) => {
+          if (!by.has(r.hour)) by.set(r.hour, []);
+          by.get(r.hour).push(r.user_id);
+        });
+
+        const slots = Array.from({ length: 24 }, (_, h) => ({
+          hour: h,
+          users: (by.get(h) || []).map((uid) => ({ id: uid })),
+          remaining: Math.max(0, 2 - (by.get(h)?.length || 0)),
+        }));
+
+        await upsertDayMessage(interaction.client, guild.id, ch, date, slots);
+      } catch (e) {
+        console.error('setup: upsertDayMessage error', e);
+        // fallback to empty if DB query failed
+        const slotsFallback = hoursArray().map(h => ({ hour: h, users: [], remaining: 2 }));
+        await upsertDayMessage(interaction.client, guild.id, ch, date, slotsFallback).catch(() => {});
+      }
+    }
+
+    // 10) Save roster panel ids (we store the roster-panel message ids)
     await q(
       `INSERT INTO guild_settings (guild_id, category_id, panel_channel_id, panel_message_id)
        VALUES ($1,$2,$3,$4)
@@ -226,6 +331,6 @@ They do **not** need Manage Roles permission.
       [guild.id, category.id, rosterPanelChannel.id, panelMsg.id]
     );
 
-    await interaction.editReply('✅ Setup complete! Created **#user-guide**, **#roster-panel**, **#king-assignment**, **#buff-givers-manager**, and daily roster channels.');
+    await interaction.editReply('✅ Setup complete! Created **#user-guide**, **#shift-sign-up-panel**, **#king-assignment**, **#buff-givers-management-panel**, and daily roster channels. Existing rostered users were preserved.');
   }
 };
