@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS day_messages (
 );
 
 -- NEW: King blackouts (lock hours so members can’t self-apply)
-CREATE TABLE IF NOT EXISTS king_blackouts (
+CREATE TABLE IF NOT EXISTS king_unavailable (
   guild_id TEXT NOT NULL,
   date_utc DATE NOT NULL,
   hour INT NOT NULL CHECK (hour BETWEEN 0 AND 23),
