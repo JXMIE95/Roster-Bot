@@ -785,7 +785,6 @@ export async function onSelectMenu(interaction) {
     }
     const [, action, date, hourStr] = interaction.customId.split(':');
     const hour = parseInt(hourStr, 10);
-    the:
     const guildId = interaction.guildId;
     const userIds = interaction.values;
 
