@@ -67,10 +67,24 @@ async function refreshDayEmbed(client, guildId, date) {
   const ch = category?.children?.cache?.find((c) => c.name === date);
   if (!ch) return;
 
+  // Pull current assignees for the date
   const { rows } = await q(
-    `SELECT hour, user_id FROM shifts WHERE guild_id=$1 AND date_utc=$2 ORDER BY hour`,
+    `SELECT hour, user_id
+       FROM shifts
+      WHERE guild_id=$1 AND date_utc=$2
+      ORDER BY hour`,
     [guildId, date]
   );
+
+  // Pull king-unavailable hours for the date
+  const { rows: unavailRows } = await q(
+    `SELECT hour
+       FROM king_unavailable
+      WHERE guild_id=$1 AND date_utc=$2`,
+    [guildId, date]
+  ).catch(() => ({ rows: [] })); // in case table doesn't exist yet
+
+  const lockedHours = new Set(unavailRows.map(r => r.hour));
 
   const by = new Map();
   rows.forEach((r) => {
@@ -82,6 +96,7 @@ async function refreshDayEmbed(client, guildId, date) {
     hour: h,
     users: (by.get(h) || []).map((uid) => ({ id: uid })),
     remaining: Math.max(0, 2 - (by.get(h)?.length || 0)),
+    locked: lockedHours.has(h) // 👈 add the flag
   }));
 
   await upsertDayMessage(client, guildId, ch, date, slots);
