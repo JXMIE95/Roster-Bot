@@ -102,7 +102,7 @@ export function buffManagerEmbed() {
     .setDescription(
       'Pick a **date** and an **hour** to manage that slot.\n\n' +
       'You can then **Add**, **Remove**, or **Replace** the assignees for that hour (max 2 per slot).\n\n' +
-      'Only **King**, **R5**, or **Admins** can use this panel.'
+      'Only **King** or **Admins** can use this panel.'
     );
 }
 
