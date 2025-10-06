@@ -96,7 +96,7 @@ export default {
       .setTitle('💫 Buff Giver Roster – User Guide')
       .setDescription(
 `Welcome to the **Buff Giver Roster System!**
-This bot helps organize who’s on duty for buffs each hour, who’s King, and when reminders go out.
+This bot helps organise a rostered system for who’s on duty for **Tribune** and **Chief Elder** AKA **Buff Givers**, who’s **King** and when reminders go out.
 
 ## 🧙‍♂️ Buff Givers – How to Sign Up
 Go to the **#〡✍🏻〡shift-sign-up-panel** channel.
