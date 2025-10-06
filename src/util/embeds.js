@@ -100,9 +100,12 @@ export function buffManagerEmbed() {
     .setColor(0x00b894)
     .setTitle('🛡️ Buff Givers Manager')
     .setDescription(
-      'Pick a **date** and an **hour** to manage that slot.\n\n' +
-      'You can then **Add**, **Remove**, or **Replace** the assignees for that hour (max 2 per slot).\n\n' +
-      'Only **King** or **Admins** can use this panel.'
+      'Pick a **date** and an **hour** to manage that slot.\n' +
+      'Then **Add**, **Remove**, or **Replace** the assignees for that hour (max 2 per slot).\n\n' +
+      'You can also set **King Unavailable** (blackout) for specific **date + hours**. While unavailable:\n' +
+      '• Buff Giver signup for those hours is **locked**\n' +
+      '• Your other bot can use this to avoid pinging for swaps during those hours\n\n' +
+      'Only **King**, **R5**, or **Admins** can use this panel.'
     );
 }
 
@@ -111,6 +114,7 @@ export function buffManagerComponents() {
   const hours = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0'));
 
   return [
+    // Slot management (date + hour)
     new ActionRowBuilder().addComponents(
       new StringSelectMenuBuilder()
         .setCustomId('bm_date')
@@ -126,6 +130,15 @@ export function buffManagerComponents() {
         .setMinValues(1)
         .setMaxValues(1)
         .addOptions(hours.map(h => ({ label: `${h}:00`, value: String(Number(h)) })))
+    ),
+    // King Unavailable (blackout) – start by picking a date; handlers will prompt for hours
+    new ActionRowBuilder().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId('kb_date')
+        .setPlaceholder('📵 King Unavailable — pick date')
+        .setMinValues(1)
+        .setMaxValues(1)
+        .addOptions(dates.map(d => ({ label: d, value: d })))
     )
   ];
 }
