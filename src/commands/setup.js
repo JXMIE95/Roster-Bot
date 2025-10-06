@@ -2,7 +2,8 @@
 import {
   ChannelType,
   PermissionFlagsBits,
-  EmbedBuilder
+  EmbedBuilder,
+  MessageFlags
 } from 'discord.js';
 import { q } from '../db/pool.js';
 import { nowUtc } from '../util/time.js';
@@ -26,8 +27,6 @@ function next7DatesUtc() {
 // Uses bulkDelete in batches; silently ignores older messages where needed.
 async function purgeChannelMessages(channel) {
   try {
-    // Loop until nothing left to bulk delete (Discord only allows <14d)
-    // We still try once to fetch/delete individually for any leftovers
     let fetched;
     do {
       fetched = await channel.messages.fetch({ limit: 100 }).catch(() => null);
@@ -46,7 +45,7 @@ async function purgeChannelMessages(channel) {
           await m.delete().catch(() => {});
         }
       }
-    } while (fetched && fetched.size >= 2); // break once it quiets down
+    } while (fetched && fetched.size >= 2);
   } catch {
     // ignore purge errors
   }
@@ -59,7 +58,9 @@ export default {
   },
 
   execute: async (interaction) => {
-    await interaction.deferReply({ ephemeral: true });
+    // 👇 use MessageFlags.Ephemeral instead of deprecated `ephemeral: true`
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
     const guild = interaction.guild;
     const botId = interaction.client.user.id;
 
