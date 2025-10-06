@@ -58,9 +58,14 @@ export function rosterPanelComponents(dates) {
 export function buildDayEmbed(dateStr, slots) {
   const lines =
     slots.map(s => {
+      const hh = String(s.hour).padStart(2, '0');
       const names = s.users.length ? s.users.map(u => `<@${u.id}>`).join(', ') : '—';
+      if (s.locked) {
+        // When the King marked this hour unavailable, show a lock and skip the "(+open)" suffix
+        return `**${hh}:00** 🔒 *(King unavailable)*  ${names}`;
+      }
       const open = s.remaining ? ` *(+${s.remaining} open)*` : '';
-      return `**${String(s.hour).padStart(2, '0')}:00**  ${names}${open}`;
+      return `**${hh}:00**  ${names}${open}`;
     }).join('\n') || 'No assignments yet.';
 
   return new EmbedBuilder()
