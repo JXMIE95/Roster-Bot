@@ -380,7 +380,7 @@ export async function onButton(interaction) {
     );
 
     await interaction.reply({
-      content: `📌 **${date}** — hours **${hours.map(h=>String(h).padStart(2,'0')).join(', ')}:00 UTC**. Choose members to **${action.toUpperCase()}** across all selected hours:`,
+      content: `📌 **${date}** — hours **${hours.map(h=>String(h).padStart(2,'0')).join(', ')}:00 UTC**. Choose an action:`,
       components: [row],
       flags: MessageFlags.Ephemeral
     });
@@ -399,6 +399,7 @@ export async function onButton(interaction) {
     const hours = hoursCsv.split(',').map(h => parseInt(h, 10)).filter(Number.isInteger);
 
     await setKingUnavailable(interaction.guildId, date, hours);
+    await refreshDayEmbed(interaction.client, interaction.guildId, date);
     await interaction.reply({
       content: `⛔ Marked **${date}** hours **${hours.map(h=>String(h).padStart(2,'0')).join(', ')}:00 UTC** as **King Unavailable**.`,
       flags: MessageFlags.Ephemeral
@@ -416,6 +417,7 @@ export async function onButton(interaction) {
     const hours = hoursCsv.split(',').map(h => parseInt(h, 10)).filter(Number.isInteger);
 
     await clearKingUnavailable(interaction.guildId, date, hours);
+    await refreshDayEmbed(interaction.client, interaction.guildId, date);
     await interaction.reply({
       content: `✅ Cleared **King Unavailable** for **${date}** hours **${hours.map(h=>String(h).padStart(2,'0')).join(', ')}:00 UTC**.`,
       flags: MessageFlags.Ephemeral
@@ -489,6 +491,19 @@ export async function onSelectMenu(interaction) {
   if (interaction.customId === 'date_select') {
     const date = interaction.values[0];
 
+    // 👇 show which hours are King-unavailable for this date
+    const { rows: lockRows } = await q(
+      `SELECT hour FROM king_unavailable WHERE guild_id=$1 AND date_utc=$2`,
+      [interaction.guildId, date]
+    ).catch(() => ({ rows: [] }));
+
+    const lockedList = lockRows?.length
+      ? `\n\n🔒 King-unavailable hours: **${lockRows
+          .map(r => String(r.hour).padStart(2,'0'))
+          .sort((a,b)=>a.localeCompare(b))
+          .join(', ')}:00 UTC**`
+      : '';
+
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`add_hours_ep:${date}`)
@@ -505,7 +520,7 @@ export async function onSelectMenu(interaction) {
     );
 
     await interaction.reply({
-      content: `📅 Date selected: **${date} (UTC)**. What would you like to do?`,
+      content: `📅 Date selected: **${date} (UTC)**. What would you like to do?${lockedList}`,
       components: [row],
       flags: MessageFlags.Ephemeral
     });
@@ -543,6 +558,23 @@ export async function onSelectMenu(interaction) {
       }
     }
 
+    // ⛔ Block user signup up-front if ANY selected hour is King-unavailable
+    if (action !== 'remove_hours_submit') {
+      const { rows: lockRows } = await q(
+        `SELECT hour FROM king_unavailable WHERE guild_id=$1 AND date_utc=$2`,
+        [guildId, date]
+      ).catch(() => ({ rows: [] }));
+      const locked = new Set((lockRows || []).map(r => r.hour));
+      const blocked = hours.filter(h => locked.has(h));
+      if (blocked.length) {
+        await interaction.reply({
+          content: `⛔ You cannot sign up for **${date} ${blocked.map(h=>String(h).padStart(2,'0')).join(', ')}:00 UTC** because the King is marked **Unavailable**.`,
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+    }
+
     if (action === 'remove_hours_submit' || action === 'edit_hours_submit') {
       await q(
         `DELETE FROM shifts WHERE guild_id=$1 AND date_utc=$2 AND user_id=$3`,
@@ -552,15 +584,6 @@ export async function onSelectMenu(interaction) {
 
     if (action !== 'remove_hours_submit') {
       for (const h of hours) {
-        // ⛔ Block user signup if King is unavailable
-        if (await isKingUnavailable(guildId, date, h)) {
-          await interaction.reply({
-            content: `⛔ You cannot sign up for **${date} ${String(h).padStart(2,'0')}:00 UTC** because the King is marked **Unavailable**.`,
-            flags: MessageFlags.Ephemeral
-          });
-          return;
-        }
-
         const { rows } = await q(
           `SELECT COUNT(*)::int AS c FROM shifts WHERE guild_id=$1 AND date_utc=$2 AND hour=$3`,
           [guildId, date, h]
@@ -762,6 +785,7 @@ export async function onSelectMenu(interaction) {
     }
     const [, action, date, hourStr] = interaction.customId.split(':');
     const hour = parseInt(hourStr, 10);
+    the:
     const guildId = interaction.guildId;
     const userIds = interaction.values;
 
