@@ -759,7 +759,7 @@ export async function onSelectMenu(interaction) {
   }
 
   // --- King Assignment (UserSelect) with robust checks & defer ---
-  if (interaction.customId === 'king_grant' || interaction.customId === 'king_revoke')) {
+  if (interaction.customId === 'king_grant' || interaction.customId === 'king_revoke') {
     try {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
