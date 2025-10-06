@@ -58,7 +58,7 @@ export default {
   },
 
   execute: async (interaction) => {
-    // 👇 use MessageFlags.Ephemeral instead of deprecated `ephemeral: true`
+    // Use MessageFlags.Ephemeral instead of deprecated `ephemeral: true`
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const guild = interaction.guild;
@@ -156,49 +156,54 @@ export default {
       .setTitle('💫 Buff Giver Roster – User Guide')
       .setDescription(
 `Welcome to the **Buff Giver Roster System!**
-This bot helps organise a rostered system for who’s on duty for **Tribune** and **Chief Elder** AKA **Buff Givers**, who’s **King** and when reminders go out.
+This bot helps organise a rostered system for who’s on duty for **Tribune** and **Chief Elder** (aka **Buff Givers**), who’s **King**, and when reminders go out.
 
 ## 🧙‍♂️ Buff Givers – How to Sign Up
-Go to the **#〡✍🏻〡shift-sign-up-panel** channel.
+Go to **#〡✍🏻〡shift-sign-up-panel**.
 
-**Step 1:** Use the dropdown menu to select a date (up to 7 days ahead).  
+**Step 1:** Use the dropdown to pick a date (up to 7 days ahead).  
 **Step 2:** Choose an action:
 - ✅ **Add Hours** – sign up for shifts  
 - ❌ **Remove Hours** – leave a shift  
 - ✏️ **Edit My Hours** – adjust your existing hours  
 
 You must select **at least 2 consecutive hours**.  
-The bot will confirm your selection privately.
+The bot confirms your selection privately.
 
 ## 💬 Reminders & Roles
 - You’ll get a **DM reminder** before your shift begins.  
-- The bot automatically **adds the Buff Giver role** to the user once the King has assigned you in-game and pressed the "notify assignees" button on their reminder DM.  
-- It also **removes the role** from the off-coming buff giver.  
+- The bot automatically **adds the Buff Giver role** when the King confirms a slot (or when managers set the current hour).  
+- It **removes the role** at the end of your shift.
 
-Make sure your **DMs are open** so you don’t miss reminders.
+Make sure your **DMs are open**.
 
 ## 👑 King – Managing the Roster
-
-Only **R5** or **Admins** can assign or change the King role.  
-When Buff Givers change, the King receives a DM.
-
-In that DM, the King can:
-- Press **Notify Assignees** to DM Buff Givers and assign/remove the Discord role (once per slot).
+Only **R5** or **Admins** can assign or change the King role (see **#〡👑〡king-assignment**).
+When Buff Givers change, the King receives a DM and can:
+- Press **Notify Assignees** to DM Buff Givers and auto-assign/remove the Discord role (once per slot)  
 - Press **List Assignees** to copy who’s on duty
 
-The King can also manually edit the buff givers roster and assign buff givers roles using **〡👨🏻‍💻〡buff-givers-management-panel**
+You can also manually edit the roster and roles in **#〡👨🏻‍💻〡buff-givers-management-panel**.
+
+## ⛔ King Unavailable (Blackout)
+If the King won’t be available to change positions:
+- Open **#〡👨🏻‍💻〡buff-givers-management-panel**.  
+- Use the **King Unavailable** picker to choose a **date** and **one or more hours**.  
+- Set those hours **Unavailable** (lock).  
+While locked:
+- Buff Giver sign-ups for those hours are **blocked**.  
+- Other systems/bots should avoid pinging the King for swaps in those hours.  
+You can **Clear Unavailable** later to re-open sign-ups.
 
 ## 🎖️ R5 – Role & Permissions
-
-**R5's** can:
-- Assign or remove the King in **〡👑〡king-assignment**.  
-
-They do **not** need Manage Roles permission.
+**R5s** can:
+- Assign or remove the King in **#〡👑〡king-assignment**  
+They do **not** need Manage Roles.
 
 ## 🔔 Reminders
 - Buff Givers get DM reminders.  
 - The King is notified when rosters change.  
-- “Notify Assignees” can only be pressed **once per time slot**.
+- “Notify Assignees” is **one-time per slot**.
 
 ## 💡 Tips
 - All times are **UTC**.  
@@ -240,7 +245,7 @@ They do **not** need Manage Roles permission.
 
     const panelComponents = rosterPanelComponents(dates);
     await rosterPanelChannel.send({ embeds: [instructions] });
-    const panelMsg = await rosterPanelChannel.send({ components: panelComponents });
+    const panelMsg = await rosterPanelChannel.send({ components: [ ...panelComponents ] });
 
     // 7) Post the King Assignment panel in #king-assignment
     try {
@@ -251,6 +256,7 @@ They do **not** need Manage Roles permission.
     }
 
     // 8) Post the Buff Givers Manager panel in #buff-givers-management-panel
+    //    (Includes King Unavailable/blackout controls via buffManagerComponents)
     try {
       await buffManagerChannel.send({ embeds: [buffManagerEmbed()] });
       await buffManagerChannel.send({ components: buffManagerComponents() });
@@ -293,7 +299,7 @@ They do **not** need Manage Roles permission.
         });
       }
 
-      // ⟵ Build slots from DB so we KEEP existing rostered users
+      // Build slots from DB so we KEEP existing rostered users
       try {
         const { rows } = await q(
           `SELECT hour, user_id FROM shifts WHERE guild_id=$1 AND date_utc=$2 ORDER BY hour`,
@@ -332,6 +338,6 @@ They do **not** need Manage Roles permission.
       [guild.id, category.id, rosterPanelChannel.id, panelMsg.id]
     );
 
-    await interaction.editReply('✅ Setup complete! Created **#user-guide**, **#shift-sign-up-panel**, **#king-assignment**, **#buff-givers-management-panel**, and daily roster channels. Existing rostered users were preserved.');
+    await interaction.editReply('✅ Setup complete! Created **#user-guide**, **#shift-sign-up-panel**, **#king-assignment**, **#buff-givers-management-panel**, and daily roster channels. Existing rostered users were preserved. The guide now includes **King Unavailable** instructions.');
   }
 };
