@@ -112,8 +112,8 @@ The bot will confirm your selection privately.
 
 ## 💬 Reminders & Roles
 - You’ll get a **DM reminder** before your shift begins.  
-- The bot automatically **adds the Buff Giver role** at shift start.  
-- It **removes the role** when your shift ends.  
+- The bot automatically **adds the Buff Giver role** to the user once the King has assigned you in-game and pressed the "notify assignees" button on their reminder DM.  
+- It also **removes the role** from the off-coming buff giver.  
 
 Make sure your **DMs are open** so you don’t miss reminders.
 
@@ -123,7 +123,7 @@ Only **R5** or **Admins** can assign or change the King role.
 When Buff Givers change, the King receives a DM.
 
 In that DM, the King can:
-- Press **Notify Assignees** to DM Buff Givers (once per slot)  
+- Press **Notify Assignees** to DM Buff Givers and assign/remove the Discord role (once per slot).
 - Press **List Assignees** to copy who’s on duty
 
 The King can also manually edit the buff givers roster and assign buff givers roles using **〡👨🏻‍💻〡buff-givers-management-panel**
@@ -144,7 +144,6 @@ They do **not** need Manage Roles permission.
 - All times are **UTC**.  
 - Always pick at least **2 consecutive hours**.  
 - Keep DMs open for reminders.  
-- If setup breaks, ask an R5 or Admin to run **/setup** again.
 
 🫡 **Roster your hours, check your DMs, and be ready to give buffs!**`
       );
