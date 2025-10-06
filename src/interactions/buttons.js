@@ -5,7 +5,8 @@ import {
   UserSelectMenuBuilder,
   ButtonBuilder,
   ButtonStyle,
-  MessageFlags
+  MessageFlags,
+  PermissionFlagsBits
 } from 'discord.js';
 import { q } from '../db/pool.js';
 import { hoursArray, nowUtc } from '../util/time.js';
@@ -49,7 +50,7 @@ async function requireManagerPermission(interaction) {
   const isR5 = r5RoleId ? member.roles.cache.has(r5RoleId) : false;
   const isKing = kingRoleId ? member.roles.cache.has(kingRoleId) : false;
   const isOwner = interaction.guild.ownerId === member.id;
-  const isAdmin = member.permissions.has('Administrator');
+  const isAdmin = member.permissions.has(PermissionFlagsBits.Administrator);
 
   return (isR5 || isKing || isOwner || isAdmin);
 }
@@ -106,7 +107,7 @@ async function syncBuffRoleIfNow(interaction, date, hour, beforeIds) {
   if (!role) return;
 
   const canManage =
-    me.permissions.has('ManageRoles') &&
+    me.permissions.has(PermissionFlagsBits.ManageRoles) &&
     me.roles.highest.comparePositionTo(role) > 0 &&
     !role.managed;
   if (!canManage) return;
@@ -135,7 +136,7 @@ async function syncBuffRoleIfNow(interaction, date, hour, beforeIds) {
   }
 }
 
-// ----- onButton -------------------------------------------------------------
+// ----- onButton (ONLY handles button interactions) --------------------------
 
 export async function onButton(interaction) {
   // Notify assignees (one-time)
@@ -343,7 +344,7 @@ export async function onButton(interaction) {
     return;
   }
 
-  // User self-service ephemeral flows
+  // User self-service: open the hour pickers via buttons (these are BUTTONS; submits handled in onSelectMenu)
   if (
     interaction.customId.startsWith('add_hours_ep:') ||
     interaction.customId.startsWith('remove_hours_ep:') ||
@@ -387,7 +388,7 @@ export async function onButton(interaction) {
     return;
   }
 
-  // Legacy prompts
+  // Legacy prompts (buttons shown above the date dropdown)
   if (
     interaction.customId === 'add_hours' ||
     interaction.customId === 'remove_hours' ||
@@ -402,10 +403,101 @@ export async function onButton(interaction) {
   }
 }
 
-// ----- onSelectMenu ---------------------------------------------------------
+// ----- onSelectMenu (handles ALL StringSelect & UserSelect interactions) -----
 
 export async function onSelectMenu(interaction) {
-  // Buff Manager: initial date -> multi-hour select
+  // Roster panel: public date dropdown -> private mini-panel (StringSelect)
+  if (interaction.customId === 'date_select') {
+    const date = interaction.values[0];
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`add_hours_ep:${date}`)
+        .setLabel('Add Hours')
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(`remove_hours_ep:${date}`)
+        .setLabel('Remove Hours')
+        .setStyle(ButtonStyle.Danger),
+      new ButtonBuilder()
+        .setCustomId(`edit_hours_ep:${date}`)
+        .setLabel('Edit My Hours')
+        .setStyle(ButtonStyle.Primary)
+    );
+
+    await interaction.reply({
+      content: `📅 Date selected: **${date} (UTC)**. What would you like to do?`,
+      components: [row],
+      flags: MessageFlags.Ephemeral
+    });
+    return;
+  }
+
+  // User self-service submit (StringSelect) — with 2+ consecutive rule
+  if (['add_hours_submit', 'remove_hours_submit', 'edit_hours_submit'].some(p => interaction.customId.startsWith(p))) {
+    const [action, date] = interaction.customId.split(':');
+    const hours = interaction.values.map(v => parseInt(v, 10)).sort((a, b) => a - b);
+    const userId = interaction.user.id;
+    const guildId = interaction.guildId;
+
+    if ((action === 'add_hours_submit' || action === 'edit_hours_submit')) {
+      if (hours.length < 2) {
+        await interaction.reply({
+          content: '⚠️ You must select **at least 2 hours**.',
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+      let consecutive = true;
+      for (let i = 1; i < hours.length; i++) {
+        if (hours[i] - hours[i - 1] !== 1) {
+          consecutive = false;
+          break;
+        }
+      }
+      if (!consecutive) {
+        await interaction.reply({
+          content: '⚠️ Please select **consecutive hours** (e.g., 13:00–15:00).',
+          flags: MessageFlags.Ephemeral
+        });
+        return;
+      }
+    }
+
+    if (action === 'remove_hours_submit' || action === 'edit_hours_submit') {
+      await q(
+        `DELETE FROM shifts WHERE guild_id=$1 AND date_utc=$2 AND user_id=$3`,
+        [guildId, date, userId]
+      );
+    }
+
+    if (action !== 'remove_hours_submit') {
+      for (const h of hours) {
+        const { rows } = await q(
+          `SELECT COUNT(*)::int AS c FROM shifts WHERE guild_id=$1 AND date_utc=$2 AND hour=$3`,
+          [guildId, date, h]
+        );
+        if (rows[0].c < 2) {
+          await q(
+            `INSERT INTO shifts(guild_id,date_utc,hour,user_id,created_by)
+             VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,
+            [guildId, date, h, userId, userId]
+          );
+        }
+      }
+    }
+
+    await refreshDayEmbed(interaction.client, guildId, date);
+
+    // keep the ephemeral flow clean
+    await interaction.update({
+      content: '✅ Saved! Your roster has been updated.',
+      components: [],
+    });
+    return;
+  }
+
+  // Buff Manager: initial date -> multi-hour select (StringSelect)
   if (interaction.customId === 'bm_date') {
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', flags: MessageFlags.Ephemeral });
@@ -430,7 +522,7 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // Buff Manager: hour -> date (single-hour path)
+  // Buff Manager: hour -> date (single-hour path) (StringSelect)
   if (interaction.customId === 'bm_hour') {
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', flags: MessageFlags.Ephemeral });
@@ -454,7 +546,7 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // Buff Manager: date -> single-hour action buttons
+  // Buff Manager: date -> single-hour action buttons (StringSelect)
   if (interaction.customId.startsWith('bm2_hour:')) {
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', flags: MessageFlags.Ephemeral });
@@ -477,7 +569,7 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // Buff Manager: hour -> date action buttons
+  // Buff Manager: hour -> date action buttons (StringSelect)
   if (interaction.customId.startsWith('bm2_date:')) {
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', flags: MessageFlags.Ephemeral });
@@ -500,7 +592,7 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // Buff Manager: date -> MULTI-HOURS action buttons
+  // Buff Manager: date -> MULTI-HOURS action buttons (StringSelect)
   if (interaction.customId.startsWith('bm2_hours:')) {
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', flags: MessageFlags.Ephemeral });
@@ -524,7 +616,7 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // Buff Manager results (single-hour)
+  // Buff Manager results (single-hour) — UserSelect
   if (interaction.customId.startsWith('bm_pick:')) {
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', flags: MessageFlags.Ephemeral });
@@ -593,7 +685,7 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // Buff Manager results (multi-hour)
+  // Buff Manager results (multi-hour) — UserSelect
   if (interaction.customId.startsWith('bm_pick_multi:')) {
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', flags: MessageFlags.Ephemeral });
@@ -666,93 +758,128 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // Roster panel: public date dropdown -> private mini-panel
-  if (interaction.customId === 'date_select') {
-    const date = interaction.values[0];
+  // --- King Assignment (UserSelect) with robust checks & defer ---
+  if (interaction.customId === 'king_grant' || interaction.customId === 'king_revoke')) {
+    try {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`add_hours_ep:${date}`)
-        .setLabel('Add Hours')
-        .setStyle(ButtonStyle.Success),
-      new ButtonBuilder()
-        .setCustomId(`remove_hours_ep:${date}`)
-        .setLabel('Remove Hours')
-        .setStyle(ButtonStyle.Danger),
-      new ButtonBuilder()
-        .setCustomId(`edit_hours_ep:${date}`)
-        .setLabel('Edit My Hours')
-        .setStyle(ButtonStyle.Primary)
-    );
+      const guildId = interaction.guildId;
 
-    await interaction.reply({
-      content: `📅 Date selected: **${date} (UTC)**. What would you like to do?`,
-      components: [row],
-      flags: MessageFlags.Ephemeral
-    });
+      const { rows: gset } = await q(
+        `SELECT r5_role_id, king_role_id FROM guild_settings WHERE guild_id=$1`,
+        [guildId]
+      );
+      const r5RoleId   = gset[0]?.r5_role_id || null;
+      const kingRoleId = gset[0]?.king_role_id || null;
+
+      if (!kingRoleId) {
+        await interaction.editReply('⚠️ No King role configured. Set it with `/config kingrole` first.');
+        return;
+      }
+
+      const member = await interaction.guild.members.fetch(interaction.user.id);
+      const isR5    = r5RoleId ? member.roles.cache.has(r5RoleId) : false;
+      const isOwner = interaction.guild.ownerId === member.id;
+      const isAdmin = member.permissions.has(PermissionFlagsBits.Administrator);
+
+      if (!(isR5 || isOwner || isAdmin)) {
+        await interaction.editReply('❌ You are not allowed to manage the King role. (Requires R5, Owner, or Admin.)');
+        return;
+      }
+
+      const me = await interaction.guild.members.fetchMe().catch(() => null);
+      if (!me) {
+        await interaction.editReply('⚠️ Could not fetch my member object. Do I have permission to view members?');
+        return;
+      }
+
+      const kingRole = await interaction.guild.roles.fetch(kingRoleId).catch(() => null);
+      if (!kingRole) {
+        await interaction.editReply('⚠️ King role no longer exists. Re-set it with `/config kingrole`.');
+        return;
+      }
+
+      const canManage =
+        me.permissions.has(PermissionFlagsBits.ManageRoles) &&
+        me.roles.highest.comparePositionTo(kingRole) > 0 &&
+        !kingRole.managed;
+
+      if (!canManage) {
+        await interaction.editReply(
+          [
+            '❌ I cannot edit the **King** role.',
+            '• Make sure I have **Manage Roles**',
+            '• My highest role is **above** the King role',
+            '• The King role is **not managed** (integration/linked)'
+          ].join('\n')
+        );
+        return;
+      }
+
+      const selectedIds = interaction.values; // users chosen
+      const grant = (interaction.customId === 'king_grant');
+      const results = [];
+
+      if (grant) {
+        // Remove King from everyone not selected
+        for (const [, m] of kingRole.members) {
+          if (!selectedIds.includes(m.id)) {
+            try {
+              await m.roles.remove(kingRole);
+              results.push(`🗑️ Removed King from ${m.displayName || m.user.username}`);
+            } catch (e) {
+              results.push(`⚠️ Failed removing King from <@${m.id}> (${e?.message || 'error'})`);
+            }
+          }
+        }
+
+        // Grant to selected
+        for (const uid of selectedIds) {
+          try {
+            const m = await interaction.guild.members.fetch(uid);
+            if (!m.roles.cache.has(kingRole.id)) {
+              await m.roles.add(kingRole);
+              results.push(`✅ Granted King to ${m.displayName || m.user.username}`);
+            } else {
+              results.push(`ℹ️ ${m.displayName || m.user.username} already has King`);
+            }
+          } catch (e) {
+            results.push(`⚠️ Failed granting King to <@${uid}> (${e?.message || 'error'})`);
+          }
+        }
+
+        if (selectedIds.length === 0 && kingRole.members.size === 0) {
+          results.push('ℹ️ No user selected. All current Kings have been cleared.');
+        }
+
+        await interaction.editReply(results.join('\n') || '✅ King assignment updated.');
+        return;
+      }
+
+      // REVOKE branch
+      for (const uid of selectedIds) {
+        try {
+          const m = await interaction.guild.members.fetch(uid);
+          if (m.roles.cache.has(kingRole.id)) {
+            await m.roles.remove(kingRole);
+            results.push(`✅ Revoked King from ${m.displayName || m.user.username}`);
+          } else {
+            results.push(`ℹ️ ${m.displayName || m.user.username} did not have King`);
+          }
+        } catch (e) {
+          results.push(`⚠️ Failed revoking King from <@${uid}> (${e?.message || 'error'})`);
+        }
+      }
+
+      await interaction.editReply(results.join('\n') || '✅ King role updated.');
+    } catch (err) {
+      console.error('king_grant/revoke error:', err);
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({ content: '⚠️ An error occurred handling King assignment.', flags: MessageFlags.Ephemeral }).catch(()=>{});
+      } else {
+        await interaction.editReply('⚠️ An error occurred handling King assignment. Check my role permissions & hierarchy.');
+      }
+    }
     return;
   }
-
-  // User self-service submit (2+ consecutive rule)
-  const [action, date] = interaction.customId.split(':');
-  if (!['add_hours_submit', 'remove_hours_submit', 'edit_hours_submit'].includes(action)) return;
-
-  const hours = interaction.values.map(v => parseInt(v, 10)).sort((a, b) => a - b);
-  const userId = interaction.user.id;
-  const guildId = interaction.guildId;
-
-  if ((action === 'add_hours_submit' || action === 'edit_hours_submit')) {
-    if (hours.length < 2) {
-      await interaction.reply({
-        content: '⚠️ You must select **at least 2 hours**.',
-        flags: MessageFlags.Ephemeral
-      });
-      return;
-    }
-    let consecutive = true;
-    for (let i = 1; i < hours.length; i++) {
-      if (hours[i] - hours[i - 1] !== 1) {
-        consecutive = false;
-        break;
-      }
-    }
-    if (!consecutive) {
-      await interaction.reply({
-        content: '⚠️ Please select **consecutive hours** (e.g., 13:00–15:00).',
-        flags: MessageFlags.Ephemeral
-      });
-      return;
-    }
-  }
-
-  if (action === 'remove_hours_submit' || action === 'edit_hours_submit') {
-    await q(
-      `DELETE FROM shifts WHERE guild_id=$1 AND date_utc=$2 AND user_id=$3`,
-      [guildId, date, userId]
-    );
-  }
-
-  if (action !== 'remove_hours_submit') {
-    for (const h of hours) {
-      const { rows } = await q(
-        `SELECT COUNT(*)::int AS c FROM shifts WHERE guild_id=$1 AND date_utc=$2 AND hour=$3`,
-        [guildId, date, h]
-      );
-      if (rows[0].c < 2) {
-        await q(
-          `INSERT INTO shifts(guild_id,date_utc,hour,user_id,created_by)
-           VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,
-          [guildId, date, h, userId, userId]
-        );
-      }
-    }
-  }
-
-  await refreshDayEmbed(interaction.client, guildId, date);
-
-  // Note: interaction.update(...) keeps the original ephemeral status; no flags needed here.
-  await interaction.update({
-    content: '✅ Saved! Your roster has been updated.',
-    components: [],
-  });
 }
