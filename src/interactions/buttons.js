@@ -4,7 +4,8 @@ import {
   StringSelectMenuBuilder,
   UserSelectMenuBuilder,
   ButtonBuilder,
-  ButtonStyle
+  ButtonStyle,
+  MessageFlags
 } from 'discord.js';
 import { q } from '../db/pool.js';
 import { hoursArray, nowUtc } from '../util/time.js';
@@ -174,7 +175,7 @@ export async function onButton(interaction) {
         await disableNotifyButton();
         await interaction.reply({
           content: `⚠️ This slot **${dateStr} ${String(hour).padStart(2, '0')}:00 UTC** has already been notified.`,
-          ephemeral: true
+          flags: MessageFlags.Ephemeral
         });
         return;
       }
@@ -195,7 +196,7 @@ export async function onButton(interaction) {
         await disableNotifyButton();
         await interaction.reply({
           content: `No assignees found for **${dateStr} ${String(hour).padStart(2, '0')}:00 UTC**.`,
-          ephemeral: true
+          flags: MessageFlags.Ephemeral
         });
         return;
       }
@@ -219,12 +220,12 @@ export async function onButton(interaction) {
 
       await interaction.reply({
         content: `✅ Notified assignees for **${dateStr} ${String(hour).padStart(2, '0')}:00 UTC**. (Button locked)`,
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
     } catch (e) {
       await interaction.reply({
         content: `⚠️ Could not notify assignees. (${e.message || 'unknown error'})`,
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
     }
     return;
@@ -245,7 +246,7 @@ export async function onButton(interaction) {
       if (!rows.length) {
         await interaction.reply({
           content: `No assignees found for **${dateStr} ${String(hour).padStart(2, '0')}:00 UTC**.`,
-          ephemeral: true
+          flags: MessageFlags.Ephemeral
         });
         return;
       }
@@ -261,11 +262,11 @@ export async function onButton(interaction) {
         }
       }
 
-      await interaction.reply({ content: names.join(', '), ephemeral: true });
+      await interaction.reply({ content: names.join(', '), flags: MessageFlags.Ephemeral });
     } catch (e) {
       await interaction.reply({
         content: `⚠️ Could not fetch assignee names. (${e.message || 'unknown error'})`,
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
     }
     return;
@@ -274,7 +275,7 @@ export async function onButton(interaction) {
   // Buff Manager: action buttons -> open user picker (single-hour)
   if (interaction.customId.startsWith('bm_act:')) {
     if (!(await requireManagerPermission(interaction))) {
-      await interaction.reply({ content: '❌ You are not allowed to manage this slot.', ephemeral: true });
+      await interaction.reply({ content: '❌ You are not allowed to manage this slot.', flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -305,9 +306,9 @@ export async function onButton(interaction) {
     );
 
     await interaction.reply({
-      ephemeral: true,
       content: `📌 **${date} ${String(hour).padStart(2,'0')}:00 UTC** — choose members to **${action.toUpperCase()}**:`,
-      components: [row]
+      components: [row],
+      flags: MessageFlags.Ephemeral
     });
     return;
   }
@@ -315,7 +316,7 @@ export async function onButton(interaction) {
   // Buff Manager: action buttons -> open user picker (multi-hour)
   if (interaction.customId.startsWith('bm_act_multi:')) {
     if (!(await requireManagerPermission(interaction))) {
-      await interaction.reply({ content: '❌ You are not allowed to manage these slots.', ephemeral: true });
+      await interaction.reply({ content: '❌ You are not allowed to manage these slots.', flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -335,9 +336,9 @@ export async function onButton(interaction) {
     );
 
     await interaction.reply({
-      ephemeral: true,
       content: `📌 **${date}** — hours **${hours.map(h=>String(h).padStart(2,'0')).join(', ')}:00 UTC**. Choose members to **${action.toUpperCase()}** across all selected hours:`,
-      components: [row]
+      components: [row],
+      flags: MessageFlags.Ephemeral
     });
     return;
   }
@@ -358,7 +359,6 @@ export async function onButton(interaction) {
 
     if (action === 'edit_hours_ep') {
       await interaction.reply({
-        ephemeral: true,
         content: `Edit your hours for **${date} UTC**`,
         components: [
           hourMultiSelect(
@@ -367,6 +367,7 @@ export async function onButton(interaction) {
             my
           ),
         ],
+        flags: MessageFlags.Ephemeral
       });
       return;
     }
@@ -379,9 +380,9 @@ export async function onButton(interaction) {
       : 'Select hours to remove';
 
     await interaction.reply({
-      ephemeral: true,
       content: `Choose hours for **${date} UTC**`,
       components: [hourMultiSelect(cid, ph)],
+      flags: MessageFlags.Ephemeral
     });
     return;
   }
@@ -393,9 +394,9 @@ export async function onButton(interaction) {
     interaction.customId === 'edit_hours'
   ) {
     await interaction.reply({
-      ephemeral: true,
       content:
         'Pick a date from the dropdown above first. (After you select a date, I’ll open a private picker.)',
+      flags: MessageFlags.Ephemeral
     });
     return;
   }
@@ -407,7 +408,7 @@ export async function onSelectMenu(interaction) {
   // Buff Manager: initial date -> multi-hour select
   if (interaction.customId === 'bm_date') {
     if (!(await requireManagerPermission(interaction))) {
-      await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', ephemeral: true });
+      await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', flags: MessageFlags.Ephemeral });
       return;
     }
     const date = interaction.values[0];
@@ -422,9 +423,9 @@ export async function onSelectMenu(interaction) {
         .addOptions(hours.map(h => ({ label: `${h}:00`, value: String(parseInt(h,10)) })))
     );
     await interaction.reply({
-      ephemeral: true,
       content: `📅 Date selected: **${date}**. Now pick **one or more hours**:`,
-      components: [row]
+      components: [row],
+      flags: MessageFlags.Ephemeral
     });
     return;
   }
@@ -432,7 +433,7 @@ export async function onSelectMenu(interaction) {
   // Buff Manager: hour -> date (single-hour path)
   if (interaction.customId === 'bm_hour') {
     if (!(await requireManagerPermission(interaction))) {
-      await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', ephemeral: true });
+      await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', flags: MessageFlags.Ephemeral });
       return;
     }
     const hour = parseInt(interaction.values[0], 10);
@@ -446,9 +447,9 @@ export async function onSelectMenu(interaction) {
         .addOptions(dates.map(d => ({ label: d, value: d })))
     );
     await interaction.reply({
-      ephemeral: true,
       content: `🕑 Hour selected: **${String(hour).padStart(2,'0')}:00**. Now pick a **date**:`,
-      components: [row]
+      components: [row],
+      flags: MessageFlags.Ephemeral
     });
     return;
   }
@@ -456,7 +457,7 @@ export async function onSelectMenu(interaction) {
   // Buff Manager: date -> single-hour action buttons
   if (interaction.customId.startsWith('bm2_hour:')) {
     if (!(await requireManagerPermission(interaction))) {
-      await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', ephemeral: true });
+      await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', flags: MessageFlags.Ephemeral });
       return;
     }
     const date = interaction.customId.split(':')[1];
@@ -469,9 +470,9 @@ export async function onSelectMenu(interaction) {
     );
 
     await interaction.reply({
-      ephemeral: true,
       content: `📌 Managing **${date} ${String(hour).padStart(2,'0')}:00 UTC**. Choose an action:`,
-      components: [row]
+      components: [row],
+      flags: MessageFlags.Ephemeral
     });
     return;
   }
@@ -479,7 +480,7 @@ export async function onSelectMenu(interaction) {
   // Buff Manager: hour -> date action buttons
   if (interaction.customId.startsWith('bm2_date:')) {
     if (!(await requireManagerPermission(interaction))) {
-      await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', ephemeral: true });
+      await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', flags: MessageFlags.Ephemeral });
       return;
     }
     const hour = parseInt(interaction.customId.split(':')[1], 10);
@@ -492,9 +493,9 @@ export async function onSelectMenu(interaction) {
     );
 
     await interaction.reply({
-      ephemeral: true,
       content: `📌 Managing **${date} ${String(hour).padStart(2,'0')}:00 UTC**. Choose an action:`,
-      components: [row]
+      components: [row],
+      flags: MessageFlags.Ephemeral
     });
     return;
   }
@@ -502,7 +503,7 @@ export async function onSelectMenu(interaction) {
   // Buff Manager: date -> MULTI-HOURS action buttons
   if (interaction.customId.startsWith('bm2_hours:')) {
     if (!(await requireManagerPermission(interaction))) {
-      await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', ephemeral: true });
+      await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', flags: MessageFlags.Ephemeral });
       return;
     }
     const date = interaction.customId.split(':')[1];
@@ -516,9 +517,9 @@ export async function onSelectMenu(interaction) {
     );
 
     await interaction.reply({
-      ephemeral: true,
       content: `📌 Managing **${date}** hours **${hours.map(h=>String(h).padStart(2,'0')).join(', ')}:00 UTC**. Choose an action:`,
-      components: [row]
+      components: [row],
+      flags: MessageFlags.Ephemeral
     });
     return;
   }
@@ -526,7 +527,7 @@ export async function onSelectMenu(interaction) {
   // Buff Manager results (single-hour)
   if (interaction.customId.startsWith('bm_pick:')) {
     if (!(await requireManagerPermission(interaction))) {
-      await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', ephemeral: true });
+      await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', flags: MessageFlags.Ephemeral });
       return;
     }
     const [, action, date, hourStr] = interaction.customId.split(':');
@@ -580,13 +581,13 @@ export async function onSelectMenu(interaction) {
       await syncBuffRoleIfNow(interaction, date, hour, current);
 
       await interaction.reply({
-        ephemeral: true,
-        content: `✅ Updated **${date} ${String(hour).padStart(2,'0')}:00 UTC** (${action}).`
+        content: `✅ Updated **${date} ${String(hour).padStart(2,'0')}:00 UTC** (${action}).`,
+        flags: MessageFlags.Ephemeral
       });
     } catch (e) {
       await interaction.reply({
-        ephemeral: true,
-        content: `⚠️ Failed to update slot: ${e.message || e}`
+        content: `⚠️ Failed to update slot: ${e.message || e}`,
+        flags: MessageFlags.Ephemeral
       });
     }
     return;
@@ -595,7 +596,7 @@ export async function onSelectMenu(interaction) {
   // Buff Manager results (multi-hour)
   if (interaction.customId.startsWith('bm_pick_multi:')) {
     if (!(await requireManagerPermission(interaction))) {
-      await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', ephemeral: true });
+      await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', flags: MessageFlags.Ephemeral });
       return;
     }
     const [, action, date, hoursCsv] = interaction.customId.split(':');
@@ -653,13 +654,13 @@ export async function onSelectMenu(interaction) {
       await refreshDayEmbed(interaction.client, guildId, date);
 
       await interaction.reply({
-        ephemeral: true,
-        content: `✅ Updated **${date}** hours **${hours.map(h=>String(h).padStart(2,'0')).join(', ')}:00 UTC** (${action}).`
+        content: `✅ Updated **${date}** hours **${hours.map(h=>String(h).padStart(2,'0')).join(', ')}:00 UTC** (${action}).`,
+        flags: MessageFlags.Ephemeral
       });
     } catch (e) {
       await interaction.reply({
-        ephemeral: true,
-        content: `⚠️ Failed to update selected hours: ${e.message || e}`
+        content: `⚠️ Failed to update selected hours: ${e.message || e}`,
+        flags: MessageFlags.Ephemeral
       });
     }
     return;
@@ -685,9 +686,9 @@ export async function onSelectMenu(interaction) {
     );
 
     await interaction.reply({
-      ephemeral: true,
       content: `📅 Date selected: **${date} (UTC)**. What would you like to do?`,
       components: [row],
+      flags: MessageFlags.Ephemeral
     });
     return;
   }
@@ -704,7 +705,7 @@ export async function onSelectMenu(interaction) {
     if (hours.length < 2) {
       await interaction.reply({
         content: '⚠️ You must select **at least 2 hours**.',
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
       return;
     }
@@ -718,7 +719,7 @@ export async function onSelectMenu(interaction) {
     if (!consecutive) {
       await interaction.reply({
         content: '⚠️ Please select **consecutive hours** (e.g., 13:00–15:00).',
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
       return;
     }
@@ -749,6 +750,7 @@ export async function onSelectMenu(interaction) {
 
   await refreshDayEmbed(interaction.client, guildId, date);
 
+  // Note: interaction.update(...) keeps the original ephemeral status; no flags needed here.
   await interaction.update({
     content: '✅ Saved! Your roster has been updated.',
     components: [],
