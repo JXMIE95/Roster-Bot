@@ -947,7 +947,7 @@ export async function onSelectMenu(interaction) {
   }
 
   /* ---------- King Assignment (UserSelect) ---------- */
-  if (interaction.customId === 'king_grant' || interaction.customId === 'king_revoke')) return; // handled in onSelectMenu
+  if (interaction.customId === 'king_grant' || interaction.customId === 'king_revoke') return; // handled in onSelectMenu
 }
 
 /* ========== EXTRA: handle King grant/revoke in onSelectMenu (UserSelect) ========== */
