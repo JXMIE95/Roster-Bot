@@ -12,7 +12,7 @@ import { q } from '../db/pool.js';
 import { hoursArray, nowUtc } from '../util/time.js';
 import { upsertDayMessage } from '../util/dayMessage.js';
 
-// ----- helpers --------------------------------------------------------------
+/* ========================== helpers ========================== */
 
 function hourMultiSelect(customId, placeholder, preSelected = []) {
   return new ActionRowBuilder().addComponents(
@@ -67,7 +67,7 @@ async function refreshDayEmbed(client, guildId, date) {
   const ch = category?.children?.cache?.find((c) => c.name === date);
   if (!ch) return;
 
-  // Pull current assignees for the date
+  // current assignees
   const { rows } = await q(
     `SELECT hour, user_id
        FROM shifts
@@ -76,13 +76,13 @@ async function refreshDayEmbed(client, guildId, date) {
     [guildId, date]
   );
 
-  // Pull king-unavailable hours for the date
+  // king-unavailable hours
   const { rows: unavailRows } = await q(
     `SELECT hour
        FROM king_unavailable
       WHERE guild_id=$1 AND date_utc=$2`,
     [guildId, date]
-  ).catch(() => ({ rows: [] })); // in case table doesn't exist yet
+  ).catch(() => ({ rows: [] }));
 
   const lockedHours = new Set(unavailRows.map(r => r.hour));
 
@@ -96,13 +96,16 @@ async function refreshDayEmbed(client, guildId, date) {
     hour: h,
     users: (by.get(h) || []).map((uid) => ({ id: uid })),
     remaining: Math.max(0, 2 - (by.get(h)?.length || 0)),
-    locked: lockedHours.has(h) // 👈 add the flag
+    locked: lockedHours.has(h)
   }));
 
   await upsertDayMessage(client, guildId, ch, date, slots);
 }
 
-/** If the manager updated the CURRENT UTC hour, immediately sync the live Buff role. */
+/**
+ * Immediately sync the live Buff role if the manager updated the CURRENT UTC hour.
+ * IMPORTANT: Do NOT remove Buff role from members who have the King role.
+ */
 async function syncBuffRoleIfNow(interaction, date, hour, beforeIds) {
   const now = nowUtc();
   const todayStr = now.clone().format('YYYY-MM-DD');
@@ -110,21 +113,23 @@ async function syncBuffRoleIfNow(interaction, date, hour, beforeIds) {
   if (date !== todayStr || hour !== curHour) return;
 
   const { rows: gset } = await q(
-    `SELECT buff_role_id FROM guild_settings WHERE guild_id=$1`,
+    `SELECT buff_role_id, king_role_id FROM guild_settings WHERE guild_id=$1`,
     [interaction.guildId]
   );
   const buffRoleId = gset[0]?.buff_role_id;
+  const kingRoleId = gset[0]?.king_role_id;
   if (!buffRoleId) return;
 
   const guild = interaction.guild;
   const me = await guild.members.fetchMe();
-  const role = await guild.roles.fetch(buffRoleId).catch(() => null);
-  if (!role) return;
+  const buffRole = await guild.roles.fetch(buffRoleId).catch(() => null);
+  const kingRole = kingRoleId ? await guild.roles.fetch(kingRoleId).catch(() => null) : null;
+  if (!buffRole) return;
 
   const canManage =
     me.permissions.has(PermissionFlagsBits.ManageRoles) &&
-    me.roles.highest.comparePositionTo(role) > 0 &&
-    !role.managed;
+    me.roles.highest.comparePositionTo(buffRole) > 0 &&
+    !buffRole.managed;
   if (!canManage) return;
 
   const { rows: afterRows } = await q(
@@ -134,18 +139,23 @@ async function syncBuffRoleIfNow(interaction, date, hour, beforeIds) {
   const afterIds = new Set(afterRows.map(r => r.user_id));
   const beforeSet = new Set(beforeIds || []);
 
+  // Add Buff role to current assignees
   for (const uid of afterIds) {
     try {
       const m = await guild.members.fetch(uid);
-      if (!m.roles.cache.has(role.id)) await m.roles.add(role).catch(() => {});
+      if (!m.roles.cache.has(buffRole.id)) await m.roles.add(buffRole).catch(() => {});
     } catch {}
   }
 
+  // Remove Buff role from members who are no longer on duty — but skip Kings
   for (const uid of beforeSet) {
     if (!afterIds.has(uid)) {
       try {
         const m = await guild.members.fetch(uid);
-        if (m.roles.cache.has(role.id)) await m.roles.remove(role).catch(() => {});
+        const isKing = kingRole ? m.roles.cache.has(kingRole.id) : false;
+        if (!isKing && m.roles.cache.has(buffRole.id)) {
+          await m.roles.remove(buffRole).catch(() => {});
+        }
       } catch {}
     }
   }
@@ -179,7 +189,30 @@ async function clearKingUnavailable(guildId, date, hours) {
   );
 }
 
-// ----- onButton (ONLY handles button interactions) --------------------------
+/* ---------- Role helpers for King<->Buff coupling ---------- */
+
+async function getConfiguredRoles(guildId, guild) {
+  const { rows } = await q(
+    `SELECT king_role_id, buff_role_id FROM guild_settings WHERE guild_id=$1`,
+    [guildId]
+  );
+  const kingRoleId = rows[0]?.king_role_id || null;
+  const buffRoleId = rows[0]?.buff_role_id || null;
+  const kingRole = kingRoleId ? await guild.roles.fetch(kingRoleId).catch(() => null) : null;
+  const buffRole = buffRoleId ? await guild.roles.fetch(buffRoleId).catch(() => null) : null;
+  return { kingRole, buffRole };
+}
+
+function canBotManageRole(me, role) {
+  return (
+    !!role &&
+    me.permissions.has(PermissionFlagsBits.ManageRoles) &&
+    me.roles.highest.comparePositionTo(role) > 0 &&
+    !role.managed
+  );
+}
+
+/* =================== onButton (BUTTON interactions) =================== */
 
 export async function onButton(interaction) {
   // Notify assignees (one-time)
@@ -389,7 +422,6 @@ export async function onButton(interaction) {
 
   /* ---------- King Unavailable BUTTON actions ---------- */
 
-  // Mark hours as unavailable
   if (interaction.customId.startsWith('kb_set_unavailable:')) {
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to modify King availability.', flags: MessageFlags.Ephemeral });
@@ -407,7 +439,6 @@ export async function onButton(interaction) {
     return;
   }
 
-  // Clear hours from unavailable
   if (interaction.customId.startsWith('kb_clear_unavailable:')) {
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to modify King availability.', flags: MessageFlags.Ephemeral });
@@ -425,7 +456,7 @@ export async function onButton(interaction) {
     return;
   }
 
-  // User self-service: open the hour pickers via buttons (these are BUTTONS; submits handled in onSelectMenu)
+  // User self-service (BUTTONS that open selects)
   if (
     interaction.customId.startsWith('add_hours_ep:') ||
     interaction.customId.startsWith('remove_hours_ep:') ||
@@ -469,7 +500,7 @@ export async function onButton(interaction) {
     return;
   }
 
-  // Legacy prompts (buttons shown above the date dropdown)
+  // Legacy prompts
   if (
     interaction.customId === 'add_hours' ||
     interaction.customId === 'remove_hours' ||
@@ -484,14 +515,13 @@ export async function onButton(interaction) {
   }
 }
 
-// ----- onSelectMenu (handles ALL StringSelect & UserSelect interactions) -----
+/* ========== onSelectMenu (ALL StringSelect & UserSelect interactions) ========== */
 
 export async function onSelectMenu(interaction) {
-  // Roster panel: public date dropdown -> private mini-panel (StringSelect)
+  // Roster panel date -> private mini panel
   if (interaction.customId === 'date_select') {
     const date = interaction.values[0];
 
-    // 👇 show which hours are King-unavailable for this date
     const { rows: lockRows } = await q(
       `SELECT hour FROM king_unavailable WHERE guild_id=$1 AND date_utc=$2`,
       [interaction.guildId, date]
@@ -527,7 +557,7 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // User self-service submit (StringSelect) — with 2+ consecutive rule + blackout checks
+  // User self-service submit (2+ consecutive + blackout checks)
   if (['add_hours_submit', 'remove_hours_submit', 'edit_hours_submit'].some(p => interaction.customId.startsWith(p))) {
     const [action, date] = interaction.customId.split(':');
     const hours = interaction.values.map(v => parseInt(v, 10)).sort((a, b) => a - b);
@@ -558,7 +588,7 @@ export async function onSelectMenu(interaction) {
       }
     }
 
-    // ⛔ Block user signup up-front if ANY selected hour is King-unavailable
+    // block signups if any hour is king-unavailable
     if (action !== 'remove_hours_submit') {
       const { rows: lockRows } = await q(
         `SELECT hour FROM king_unavailable WHERE guild_id=$1 AND date_utc=$2`,
@@ -607,7 +637,7 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // Buff Manager: initial date -> multi-hour select (StringSelect)
+  // Buff Manager: initial date -> multi-hour select
   if (interaction.customId === 'bm_date') {
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', flags: MessageFlags.Ephemeral });
@@ -632,7 +662,7 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // Buff Manager: hour -> date (single-hour path) (StringSelect)
+  // Buff Manager: hour -> date (single-hour path)
   if (interaction.customId === 'bm_hour') {
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', flags: MessageFlags.Ephemeral });
@@ -656,7 +686,7 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // Buff Manager: date -> single-hour action buttons (StringSelect)
+  // Buff Manager: date -> single-hour action buttons
   if (interaction.customId.startsWith('bm2_hour:')) {
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', flags: MessageFlags.Ephemeral });
@@ -679,7 +709,7 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // Buff Manager: hour -> date action buttons (StringSelect)
+  // Buff Manager: hour -> date action buttons
   if (interaction.customId.startsWith('bm2_date:')) {
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', flags: MessageFlags.Ephemeral });
@@ -702,7 +732,7 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // Buff Manager: date -> MULTI-HOURS action buttons (StringSelect)
+  // Buff Manager: date -> MULTI-HOURS action buttons
   if (interaction.customId.startsWith('bm2_hours:')) {
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', flags: MessageFlags.Ephemeral });
@@ -728,7 +758,6 @@ export async function onSelectMenu(interaction) {
 
   /* ---------- King Unavailable SELECT flows ---------- */
 
-  // Pick a date to set King Unavailable
   if (interaction.customId === 'kb_date') {
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to mark King availability.', flags: MessageFlags.Ephemeral });
@@ -754,7 +783,6 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // After choosing hours -> show Mark/Clear buttons
   if (interaction.customId.startsWith('kb_hours:')) {
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to modify King availability.', flags: MessageFlags.Ephemeral });
@@ -777,7 +805,8 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // Buff Manager results (single-hour) — UserSelect
+  /* ---------- Buff Manager results SELECTs ---------- */
+
   if (interaction.customId.startsWith('bm_pick:')) {
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', flags: MessageFlags.Ephemeral });
@@ -846,7 +875,6 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // Buff Manager results (multi-hour) — UserSelect
   if (interaction.customId.startsWith('bm_pick_multi:')) {
     if (!(await requireManagerPermission(interaction))) {
       await interaction.reply({ content: '❌ You are not allowed to manage roster slots.', flags: MessageFlags.Ephemeral });
@@ -900,7 +928,6 @@ export async function onSelectMenu(interaction) {
           }
         }
 
-        // live role sync if this hour is now
         await syncBuffRoleIfNow(interaction, date, hour, current);
       }
 
@@ -919,128 +946,156 @@ export async function onSelectMenu(interaction) {
     return;
   }
 
-  // --- King Assignment (UserSelect) with robust checks & defer ---
-  if (interaction.customId === 'king_grant' || interaction.customId === 'king_revoke') {
-    try {
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  /* ---------- King Assignment (UserSelect) ---------- */
+  if (interaction.customId === 'king_grant' || interaction.customId === 'king_revoke')) return; // handled in onSelectMenu
+}
 
-      const guildId = interaction.guildId;
+/* ========== EXTRA: handle King grant/revoke in onSelectMenu (UserSelect) ========== */
 
-      const { rows: gset } = await q(
-        `SELECT r5_role_id, king_role_id FROM guild_settings WHERE guild_id=$1`,
-        [guildId]
+export async function onUserSelectKing(interaction) {
+  // This helper handles the user-select menus with customId king_grant / king_revoke
+  try {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    const guildId = interaction.guildId;
+    const guild = interaction.guild;
+
+    const { rows: gset } = await q(
+      `SELECT r5_role_id, king_role_id FROM guild_settings WHERE guild_id=$1`,
+      [guildId]
+    );
+    const r5RoleId   = gset[0]?.r5_role_id || null;
+    const kingRoleId = gset[0]?.king_role_id || null;
+
+    if (!kingRoleId) {
+      await interaction.editReply('⚠️ No King role configured. Set it with `/config kingrole` first.');
+      return;
+    }
+
+    const member = await guild.members.fetch(interaction.user.id);
+    const isR5    = r5RoleId ? member.roles.cache.has(r5RoleId) : false;
+    const isOwner = guild.ownerId === member.id;
+    const isAdmin = member.permissions.has(PermissionFlagsBits.Administrator);
+
+    if (!(isR5 || isOwner || isAdmin)) {
+      await interaction.editReply('❌ You are not allowed to manage the King role. (Requires R5, Owner, or Admin.)');
+      return;
+    }
+
+    const me = await guild.members.fetchMe().catch(() => null);
+    if (!me) {
+      await interaction.editReply('⚠️ Could not fetch my member object. Do I have permission to view members?');
+      return;
+    }
+
+    const { kingRole, buffRole } = await getConfiguredRoles(guildId, guild);
+    if (!kingRole) {
+      await interaction.editReply('⚠️ King role no longer exists. Re-set it with `/config kingrole`.');
+      return;
+    }
+
+    const canManageKing = canBotManageRole(me, kingRole);
+    const canManageBuff = canBotManageRole(me, buffRole);
+
+    if (!canManageKing) {
+      await interaction.editReply(
+        [
+          '❌ I cannot edit the **King** role.',
+          '• Make sure I have **Manage Roles**',
+          '• My highest role is **above** the King role',
+          '• The King role is **not managed** (integration/linked)'
+        ].join('\n')
       );
-      const r5RoleId   = gset[0]?.r5_role_id || null;
-      const kingRoleId = gset[0]?.king_role_id || null;
+      return;
+    }
 
-      if (!kingRoleId) {
-        await interaction.editReply('⚠️ No King role configured. Set it with `/config kingrole` first.');
-        return;
-      }
+    const selectedIds = interaction.values; // users chosen
+    const grant = (interaction.customId === 'king_grant');
+    const results = [];
 
-      const member = await interaction.guild.members.fetch(interaction.user.id);
-      const isR5    = r5RoleId ? member.roles.cache.has(r5RoleId) : false;
-      const isOwner = interaction.guild.ownerId === member.id;
-      const isAdmin = member.permissions.has(PermissionFlagsBits.Administrator);
-
-      if (!(isR5 || isOwner || isAdmin)) {
-        await interaction.editReply('❌ You are not allowed to manage the King role. (Requires R5, Owner, or Admin.)');
-        return;
-      }
-
-      const me = await interaction.guild.members.fetchMe().catch(() => null);
-      if (!me) {
-        await interaction.editReply('⚠️ Could not fetch my member object. Do I have permission to view members?');
-        return;
-      }
-
-      const kingRole = await interaction.guild.roles.fetch(kingRoleId).catch(() => null);
-      if (!kingRole) {
-        await interaction.editReply('⚠️ King role no longer exists. Re-set it with `/config kingrole`.');
-        return;
-      }
-
-      const canManage =
-        me.permissions.has(PermissionFlagsBits.ManageRoles) &&
-        me.roles.highest.comparePositionTo(kingRole) > 0 &&
-        !kingRole.managed;
-
-      if (!canManage) {
-        await interaction.editReply(
-          [
-            '❌ I cannot edit the **King** role.',
-            '• Make sure I have **Manage Roles**',
-            '• My highest role is **above** the King role',
-            '• The King role is **not managed** (integration/linked)'
-          ].join('\n')
-        );
-        return;
-      }
-
-      const selectedIds = interaction.values; // users chosen
-      const grant = (interaction.customId === 'king_grant');
-      const results = [];
-
-      if (grant) {
-        // Remove King from everyone not selected
-        for (const [, m] of kingRole.members) {
-          if (!selectedIds.includes(m.id)) {
-            try {
-              await m.roles.remove(kingRole);
-              results.push(`🗑️ Removed King from ${m.displayName || m.user.username}`);
-            } catch (e) {
-              results.push(`⚠️ Failed removing King from <@${m.id}> (${e?.message || 'error'})`);
-            }
-          }
-        }
-
-        // Grant to selected
-        for (const uid of selectedIds) {
+    if (grant) {
+      // Remove King from everyone not selected
+      for (const [, m] of kingRole.members) {
+        if (!selectedIds.includes(m.id)) {
           try {
-            const m = await interaction.guild.members.fetch(uid);
-            if (!m.roles.cache.has(kingRole.id)) {
-              await m.roles.add(kingRole);
-              results.push(`✅ Granted King to ${m.displayName || m.user.username}`);
-            } else {
-              results.push(`ℹ️ ${m.displayName || m.user.username} already has King`);
+            await m.roles.remove(kingRole);
+            results.push(`🗑️ Removed King from ${m.displayName || m.user.username}`);
+
+            // also remove Buff role when King removed
+            if (buffRole && canManageBuff && m.roles.cache.has(buffRole.id)) {
+              await m.roles.remove(buffRole).catch(() => {});
             }
           } catch (e) {
-            results.push(`⚠️ Failed granting King to <@${uid}> (${e?.message || 'error'})`);
+            results.push(`⚠️ Failed removing King from <@${m.id}> (${e?.message || 'error'})`);
           }
         }
-
-        if (selectedIds.length === 0 && kingRole.members.size === 0) {
-          results.push('ℹ️ No user selected. All current Kings have been cleared.');
-        }
-
-        await interaction.editReply(results.join('\n') || '✅ King assignment updated.');
-        return;
       }
 
-      // REVOKE branch
+      // Grant to selected + also give Buff role
       for (const uid of selectedIds) {
         try {
-          const m = await interaction.guild.members.fetch(uid);
-          if (m.roles.cache.has(kingRole.id)) {
-            await m.roles.remove(kingRole);
-            results.push(`✅ Revoked King from ${m.displayName || m.user.username}`);
+          const m = await guild.members.fetch(uid);
+          if (!m.roles.cache.has(kingRole.id)) {
+            await m.roles.add(kingRole);
+            results.push(`✅ Granted King to ${m.displayName || m.user.username}`);
           } else {
-            results.push(`ℹ️ ${m.displayName || m.user.username} did not have King`);
+            results.push(`ℹ️ ${m.displayName || m.user.username} already has King`);
+          }
+
+          // Also assign Buff role to the King (independent of shift logic)
+          if (buffRole && canManageBuff && !m.roles.cache.has(buffRole.id)) {
+            await m.roles.add(buffRole).catch(() => {});
           }
         } catch (e) {
-          results.push(`⚠️ Failed revoking King from <@${uid}> (${e?.message || 'error'})`);
+          results.push(`⚠️ Failed granting King to <@${uid}> (${e?.message || 'error'})`);
         }
       }
 
-      await interaction.editReply(results.join('\n') || '✅ King role updated.');
-    } catch (err) {
-      console.error('king_grant/revoke error:', err);
-      if (!interaction.replied && !interaction.deferred) {
-        await interaction.reply({ content: '⚠️ An error occurred handling King assignment.', flags: MessageFlags.Ephemeral }).catch(()=>{});
-      } else {
-        await interaction.editReply('⚠️ An error occurred handling King assignment. Check my role permissions & hierarchy.');
+      if (selectedIds.length === 0 && kingRole.members.size === 0) {
+        results.push('ℹ️ No user selected. All current Kings have been cleared.');
+      }
+
+      await interaction.editReply(results.join('\n') || '✅ King assignment updated.');
+      return;
+    }
+
+    // REVOKE branch: remove King (and Buff role too)
+    for (const uid of selectedIds) {
+      try {
+        const m = await guild.members.fetch(uid);
+        if (m.roles.cache.has(kingRole.id)) {
+          await m.roles.remove(kingRole);
+          results.push(`✅ Revoked King from ${m.displayName || m.user.username}`);
+
+          if (buffRole && canManageBuff && m.roles.cache.has(buffRole.id)) {
+            await m.roles.remove(buffRole).catch(() => {});
+          }
+        } else {
+          results.push(`ℹ️ ${m.displayName || m.user.username} did not have King`);
+        }
+      } catch (e) {
+        results.push(`⚠️ Failed revoking King from <@${uid}> (${e?.message || 'error'})`);
       }
     }
-    return;
+
+    await interaction.editReply(results.join('\n') || '✅ King role updated.');
+  } catch (err) {
+    console.error('king_grant/revoke error:', err);
+    if (!interaction.replied && !interaction.deferred) {
+      await interaction.reply({ content: '⚠️ An error occurred handling King assignment.', flags: MessageFlags.Ephemeral }).catch(()=>{});
+    } else {
+      await interaction.editReply('⚠️ An error occurred handling King assignment. Check my role permissions & hierarchy.');
+    }
   }
+}
+
+/* ========= Route UserSelect interactions to onUserSelectKing ========= */
+
+export async function onSelectMenuRouter(interaction) {
+  // If this is a UserSelect (type 3) for king assignment, handle here.
+  if (interaction.customId === 'king_grant' || interaction.customId === 'king_revoke') {
+    return onUserSelectKing(interaction);
+  }
+  // Otherwise, it’s a StringSelect and should go to onSelectMenu
+  return onSelectMenu(interaction);
 }
