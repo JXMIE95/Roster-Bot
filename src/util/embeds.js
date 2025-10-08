@@ -83,7 +83,7 @@ export function kingAssignmentEmbed() {
       'Use the selector below to **assign the King role**, if the person you want isn't listed start typing their name into the search bar and it should appear.\n\n' +
       'When you confirm, the bot will automatically **remove the King role** from all other members ' +
       'and grant it to your selected member.\n\n' +
-      'Only **R5**, **Admins**, or the **Server Owner** can use this panel.'
+      'Only **R5**, **Admins**, or the **Server Owner** can use this panel.')
     );
 }
 
