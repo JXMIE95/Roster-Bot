@@ -80,7 +80,7 @@ export function kingAssignmentEmbed() {
     .setColor(0xf1c40f)
     .setTitle('👑 King Assignment')
     .setDescription(
-      'Use the selector below to **assign the King role**.\n\n' 
+      'Use the selector below to **assign the King role**.\n\n' +
       'If the person you want to assign is not listed, start typing their name into the search bar and it should appear.\n\n' +
       'When you confirm, the bot will automatically **remove the King role** from all other members ' +
       'and grant it to your selected member.\n\n' +
